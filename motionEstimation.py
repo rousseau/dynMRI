@@ -34,7 +34,7 @@ import argparse
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
-  
+
   parser.add_argument('-s', '--static', help='Static input image', type=str, required = True)
   parser.add_argument('-d', '--dyn', help='Dynamic 4D input image', type=str, required = True)
   parser.add_argument('-m', '--mask', help='Segmentation high-resolution mask image', type=str, required = True,action='append')
@@ -42,5 +42,6 @@ if __name__ == '__main__':
 
   args = parser.parse_args()
 
-  
-  
+
+
+  print("Hello Git!!")
