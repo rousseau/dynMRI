@@ -359,7 +359,7 @@ if __name__ == '__main__':
     linked_time_frame=np.prod(dice_evaluation_array, axis=0)
     t=np.argmax(linked_time_frame) ### the main idea here is to detect the time frame the most closest to the static scan ("no-motion" detection)
 
-    if(t<0.6):
+    if(t<0.5):
         linked_time_frame=np.prod(normalized_correlation_evaluation_array, axis=0)
         t=np.argmax(linked_time_frame)
 
@@ -401,7 +401,6 @@ if __name__ == '__main__':
             outputimage = output_results+'/flirt_'+prefix2+'_on_'+prefix1+'.nii.gz'
             outputmat   = output_results+'/matrix_flirt_'+prefix2+'_on_'+prefix1+'.mat'
             go = go_init +' -in '+movimage+' -out '+outputimage+ ' -omat '+outputmat + ' -refweight ' +  final_refweightSet[0]
-            print(go)
             os.system(go)
             final_refweightSet=glob.glob(output_results+'/'+mask_basename+'*.nii.gz')
             final_refweightSet.sort()
@@ -412,7 +411,6 @@ if __name__ == '__main__':
             direct_static_on_dynSet.sort()
             out_refweight= output_results+'/mask_'+prefix2+'_component_'+str(i)+'.nii.gz'
             go_propagation = 'time flirt -applyxfm -noresampblur -ref '+dynamicSet[t-1]+' -in ' + args.mask[i] + ' -init '+ direct_static_on_dynSet[0] + ' -out ' +out_refweight  + ' -interp nearestneighbour '
-            print(go_propagation)
             os.system(go_propagation)
 
             t-=1
@@ -442,7 +440,6 @@ if __name__ == '__main__':
             outputimage = output_results+'/flirt_'+prefix2+'_on_'+prefix1+'.nii.gz'
             outputmat   = output_results+'/matrix_flirt_'+prefix2+'_on_'+prefix1+'.mat'
             go = go_init +' -in '+movimage+' -out '+outputimage+ ' -omat '+outputmat + ' -refweight ' +  final_refweightSet[t]
-            print(go)
             os.system(go)
             direct_transform = output_results+'/direct_static_on_'+prefix2+'_component_'+str(i)+'.mat'
             b=np.dot(inv(Text_file_to_matrix(outputmat)), Text_file_to_matrix(direct_static_on_dynSet[t]))
@@ -451,7 +448,6 @@ if __name__ == '__main__':
             direct_static_on_dynSet.sort()
             out_refweight= output_results+'/mask_'+prefix2+'_component_'+str(i)+'.nii.gz'
             go_propagation = 'time flirt -applyxfm -noresampblur -ref '+dynamicSet[t+1]+' -in ' + args.mask[i] + ' -init '+ direct_static_on_dynSet[t+1] + ' -out ' +out_refweight  + ' -interp nearestneighbour '
-            print(go_propagation)
             os.system(go_propagation)
             final_refweightSet=glob.glob(output_results+'/'+mask_basename+'*.nii.gz')
             final_refweightSet.sort()
