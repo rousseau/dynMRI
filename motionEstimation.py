@@ -1,8 +1,7 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*-
+
 """
-
-
   © IMT Atlantique - LATIM-INSERM UMR 1101
 
   Author(s): Karim Makki (karim.makki@imt-atlantique.fr)
@@ -135,10 +134,6 @@ def Fuzzy_dice(rfile, ifile):
     return res.outputs.dice
 
 
-#jobs=[]
-#pool = multiprocessing.Pool(8)
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='dynMRI')
 
@@ -204,8 +199,6 @@ if __name__ == '__main__':
     propagation_image_basename = 'flirt_dyn'
 
 ######## Global registration of the static on each time frame #########
-    jobs=[]
-    pool = multiprocessing.Pool(8)
 
     movimage= High_resolution_static
 
@@ -237,8 +230,6 @@ if __name__ == '__main__':
             global_mask= outputpath_boneSet[i]+'/global_mask_'+prefix+'_component_'+str(i)+'.nii.gz'
             go_propagation = 'flirt -applyxfm -noresampblur -ref '+global_imageSet[t]+' -in ' + args.mask[i] + ' -init '+ global_matrixSet[t] + ' -out ' + global_mask + ' -interp nearestneighbour '
             os.system(go_propagation)
-            #jobs.append(go_propagation)
-    #pool.map(os.system,jobs)
 
 ##########################################################################
 
@@ -263,8 +254,6 @@ if __name__ == '__main__':
                 go_init = 'flirt  -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -cost normcorr -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
 
             os.system(go_init)
-            #jobs.append(go_init)
-    #pool.map(os.system,jobs)
 
 #### Compute composed transformations from static to each time frame #####
 
@@ -298,13 +287,9 @@ if __name__ == '__main__':
             go_init = 'flirt -applyxfm -noresampblur -ref '+ dynamicSet[t] + ' -in '+ args.mask[i] + ' -out '+ low_resolution_mask + ' -init '+init_matrixSet[t]+ ' -interp nearestneighbour '
             os.system(go_init)
 
-            #jobs.append(go_init)
-    #pool.map(os.system,jobs)
-
 ######### Finding the time frame that best align with static image  ########
 
     dice_evaluation_array=np.zeros((len(outputpath_boneSet), len(dynamicSet)))
-    normalized_correlation_evaluation_array=np.zeros((len(outputpath_boneSet), len(dynamicSet)))
 
     for i in range(0,len(outputpath_boneSet)):
 
@@ -436,5 +421,3 @@ if __name__ == '__main__':
             go2= 'mv '+ propagation_imageSet[t] +' '+ outputpath_boneSet[i]+'/flirt_'+prefix1+'_on_'+prefix2+'.nii.gz'
             os.system(go1)
             os.system(go2)
-
-    print(np.argmax(linked_time_frame))
