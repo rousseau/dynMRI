@@ -45,6 +45,7 @@ from numpy.linalg import det
 from numpy import newaxis
 import itertools
 from scipy.ndimage.interpolation import map_coordinates
+#from scipy.ndimage.morphology import binary_erosion
 
 
 
@@ -63,16 +64,16 @@ def Matrix_to_text_file(matrix, text_filename):
 
 def nifti_to_array(filename):
 
-    nii=nib.load(filename)
-    data=nii.get_data()
+    nii = nib.load(filename)
+    data = nii.get_data()
 
     return (data)
 
 
 def nifti_image_shape(filename):
 
-    nii=nib.load(filename)
-    data=nii.get_data()
+    nii = nib.load(filename)
+    data = nii.get_data()
 
     return (data.shape)
 
@@ -80,7 +81,7 @@ def nifti_image_shape(filename):
 
 def get_header_from_nifti_file(filename):
 
-    nii=nib.load(filename)
+    nii = nib.load(filename)
 
     return nii.header
 
@@ -91,7 +92,7 @@ compute the  associated weighting function to a binary mask (a region in the ref
 
 Parameters
 ----------
-component : binary mask as nifti file
+component : array of data (binary mask)
 Returns
 -------
 output : array
@@ -99,16 +100,15 @@ output : array
 
 """
 
-def component_weighting_function(component):
+def component_weighting_function(data):
 
-    data=nifti_to_array(component)
-    data[:,:,:]= np.max(data)-data[:,:,:]  #binary inversion
+    data[:,:,:] = np.max(data)-data[:,:,:]  #binary inversion
 
-    distance_function=weighting_function=np.zeros(data.shape)
+    distance_function = weighting_function=np.zeros(data.shape)
 
-    distance_function=ndimage.distance_transform_edt(data)
+    distance_function = ndimage.distance_transform_edt(data)
 
-    weighting_function[:,:,:]=1/(1+0.5*distance_function[:,:,:])
+    weighting_function[:,:,:] = 1/(1+0.5*distance_function[:,:,:])
 
     return(weighting_function)
 
@@ -119,12 +119,11 @@ transform a point from image 1 to image 2 using a flirt transform matrix
 Parameters
 ----------
 x,y,z : the point voxel coordinates in image 1
-input_header : hdr containing voxel sizes in millimeters, and The qform affine or the sform affine of image1, as a 2D array
-reference_header : hdr containing voxel sizes in millimeters, and The qform affine or the sform affine of image2, as a 2D array
+input_header : image1 header
+reference_header : image2 header
 transform : ndarray
   flirt transformation, as a 2D array (matrix)
-input_image_shape
-reference_image_shape
+
 Returns
 -------
 output : array
@@ -132,36 +131,33 @@ output : array
 
 """
 
-
-def warp_point_using_flirt_transform(x,y,z,input_header, reference_header, transform, input_image_shape, reference_image_shape):
+def warp_point_using_flirt_transform(x,y,z,input_header, reference_header, transform):
 # flip [x,y,z] if necessary (based on the sign of the sform or qform determinant)
 	if np.sign(det(input_header.get_sform()))==1:
-		x=input_image_shape[0]-1-x
-		y=input_image_shape[1]-1-y
-		z=input_image_shape[2]-1-z
+		x = input_header.get_data_shape()[0]-1-x
+		y = input_header.get_data_shape()[1]-1-y
+		z = input_header.get_data_shape()[2]-1-z
 
 #scale the values by multiplying by the corresponding voxel sizes (in mm)
 	point=np.ones(4)
-	point[0]=x*input_header.get_zooms()[0]
-	point[1]=y*input_header.get_zooms()[1]
-	point[2]=z*input_header.get_zooms()[2]
+	point[0] = x*input_header.get_zooms()[0]
+	point[1] = y*input_header.get_zooms()[1]
+	point[2] = z*input_header.get_zooms()[2]
 # apply the FLIRT matrix to map to the reference space
-	point=np.dot(transform, point)
+	point = np.dot(transform, point)
 
 #divide by the corresponding voxel sizes (in mm, of the reference image this time)
-	point[0]=point[0]/reference_header.get_zooms()[0]
-	point[1]=point[1]/reference_header.get_zooms()[1]
-	point[2]=point[2]/reference_header.get_zooms()[2]
+	point[0] = point[0]/reference_header.get_zooms()[0]
+	point[1] = point[1]/reference_header.get_zooms()[1]
+	point[2] = point[2]/reference_header.get_zooms()[2]
 
 #flip the [x,y,z] coordinates (based on the sign of the sform or qform determinant, of the reference image this time)
 	if np.sign(det(reference_header.get_sform()))==1:
-		point[0]=reference_image_shape[0]-1-point[0]
-		point[1]=reference_image_shape[1]-1-point[1]
-		point[2]=reference_image_shape[2]-1-point[2]
+		point[0] = reference_header.get_data_shape()[0]-1-point[0]
+		point[1] = reference_header.get_data_shape()[1]-1-point[1]
+		point[2] = reference_header.get_data_shape()[2]-1-point[2]
 
 	return np.transpose(np.absolute(np.delete(point, 3, 0)))
-
-
 
 
 
@@ -173,46 +169,51 @@ if __name__ == '__main__':
     parser.add_argument('-refweight', '--component', help='', type=str, required = True,action='append')
     parser.add_argument('-t', '--transform', help='', type=str, required = True,action='append')
     parser.add_argument('-o', '--output', help='Output directory', type=str, required = True)
+    #parser.add_argument('-erode', '--eroded', help='binary_erosion kernel size', type=int, required = False)
+
+
 
     args = parser.parse_args()
 
     if not os.path.exists(args.output):
         os.makedirs(args.output)
 
-    normalized_weighting_function_path=args.output+'/normalized_weighting_function/'
+    normalized_weighting_function_path = args.output+'/normalized_weighting_function/'
     if not os.path.exists(normalized_weighting_function_path):
         os.makedirs(normalized_weighting_function_path)
 
 
 ######################compute the normalized weighting function of each component #########################
-    nii=nib.load(args.component[0])
-    im_gnd= nifti_to_array(args.component[0])
+    nii = nib.load(args.component[0])
+    im_gnd = nifti_to_array(args.component[0])
 
-    sum_of_weighting_functions=np.zeros((im_gnd.shape))
-    Normalized_weighting_function=np.zeros((im_gnd.shape))
+    sum_of_weighting_functions = np.zeros((im_gnd.shape))
+    Normalized_weighting_function = np.zeros((im_gnd.shape))
 
-    for i in range(0, len(args.component)):
-
-        sum_of_weighting_functions=np.add(sum_of_weighting_functions, component_weighting_function(args.component[i]))
 
     for i in range(0, len(args.component)):
 
-        Normalized_weighting_function[:,:,:]=np.divide(component_weighting_function(args.component[i]), sum_of_weighting_functions)
+        sum_of_weighting_functions = np.add(sum_of_weighting_functions, component_weighting_function(nifti_to_array(args.component[i])))
+
+    for i in range(0, len(args.component)):
+
+        Normalized_weighting_function[:,:,:] = np.divide(component_weighting_function(nifti_to_array(args.component[i])), sum_of_weighting_functions)
+
         k = nib.Nifti1Image(Normalized_weighting_function, nii.affine)
-        save_path=normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i)+'.nii.gz'
+        save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i)+'.nii.gz'
         nib.save(k, save_path)
 
 
 ###############################################################################################################
 
 ###### set of computed normalized weighting functions #######
-    Normalized_weighting_functionSet=glob.glob(normalized_weighting_function_path+'*.nii.gz')
+    Normalized_weighting_functionSet = glob.glob(normalized_weighting_function_path+'*.nii.gz')
     Normalized_weighting_functionSet.sort()
 
-##### create an array of matrices A(x,y,z)= ∑i  w_norm(x,y,z)*log(T(i)) ########
+##### create an array of matrices A(x,y,z)= ∑i  w_norm(i)[x,y,z]*log(T(i)) ########
 
 
-    dim0, dim1, dim2=nifti_image_shape(args.floating)
+    dim0, dim1, dim2 = nifti_image_shape(args.floating)
     local_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype=complex)
     final_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype=complex)
 
@@ -225,8 +226,7 @@ if __name__ == '__main__':
 
 #########Compute the coordinates in the input image ######
 
-    #floating_image= nifti_to_array(args.floating)
-    dim0, dim1, dim2=nifti_image_shape(args.floating)
+    dim0, dim1, dim2 = nifti_image_shape(args.floating)
 
     coords = np.zeros((3, dim0, dim1, dim2))
     coords[0,...] = np.arange(dim0)[:,newaxis,newaxis]
@@ -244,17 +244,18 @@ if __name__ == '__main__':
 
     def warp_point_log_demons(i,j,k):
 
-        T=la.expm(final_transform[i,j,k])
-
-        warped_point=warp_point_using_flirt_transform(i , j , k , header_input , header_reference , T.real , input_image_shape, reference_image_shape)
+        T = la.expm(final_transform[i,j,k])
+        warped_point = warp_point_using_flirt_transform(i , j , k , header_input , header_reference , T.real)
 
         return(warped_point)
 
 
+    print("warped image computing ...")
+
 
     for i, j, k in itertools.product(np.arange(0,dim0), np.arange(0,dim1), np.arange(0,dim2)):
 
-        coords[:,i,j,k]= warp_point_log_demons(i,j,k)
+        coords[:,i,j,k] = warp_point_log_demons(i,j,k)
         #print(coords[:,i,j,k])
 
 
@@ -274,7 +275,7 @@ if __name__ == '__main__':
     pointset[1,:] = jv
     pointset[2,:] = kv
 
-    coords= np.reshape(coords, pointset.shape)
+    coords = np.reshape(coords, pointset.shape)
     val = np.zeros(iv.shape)
 
 #### Interpolation:  mapping output data into the reference image space####
@@ -287,5 +288,5 @@ if __name__ == '__main__':
 #######writing and saving warped image ###
 
     i = nib.Nifti1Image(output_data, nii.affine)
-    save_path=args.output+'/warped_image.nii.gz'
+    save_path = args.output+'/warped_image.nii.gz'
     nib.save(i, save_path)
