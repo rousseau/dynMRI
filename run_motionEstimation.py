@@ -5,6 +5,7 @@ import glob
 import multiprocessing
 import nibabel as nib
 from xlwt import Workbook
+import argparse
 
 
 # compute the dice score between two binary masks
@@ -49,10 +50,18 @@ jobs=[]
 pool = multiprocessing.Pool(8)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
 
-    data_path='/home/karim/Data/Francois/'
-    output_path= '/home/karim/Exp/septembre/tuesday'
-    save_path=output_path+'/excel_file.xls'
+    parser.add_argument('-d', '--data_path', help='Data path', type=str, required = True)
+    parser.add_argument('-e', '--excel_file', help='Output Excel file', type=str, required = True)
+    parser.add_argument('-o', '--output_path', help='Output directory', type=str, required = True)
+
+    args = parser.parse_args()
+
+
+    data_path   = args.data_path #'/home/karim/Data/Francois/'
+    output_path = args.output_path #'/home/karim/Exp/septembre/tuesday'
+    save_path   = output_path+'/'+args.excel_file #excel_file.xls'
 
 
     subject_basename='subject'
