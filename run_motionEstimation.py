@@ -45,7 +45,8 @@ def Bin_dice(rfile,ifile):
 
 
 
-
+jobs=[]
+pool = multiprocessing.Pool(8)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -56,13 +57,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    jobs=[]
-    pool = multiprocessing.Pool(8)
 
-
-    data_path   = args.data_path 
-    output_path = args.output_path 
-    save_path   = output_path+'/'+args.excel_file
+    data_path   = args.data_path #'/home/karim/Data/Francois/'
+    output_path = args.output_path #'/home/karim/Exp/septembre/tuesday'
+    save_path   = output_path+'/'+args.excel_file #excel_file.xls'
 
 
     subject_basename='subject'
