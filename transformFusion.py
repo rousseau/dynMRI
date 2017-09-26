@@ -47,6 +47,7 @@ import itertools
 from scipy.ndimage.interpolation import map_coordinates
 #from scipy.ndimage.morphology import binary_erosion
 
+import multiprocessing
 
 
 
@@ -78,13 +79,11 @@ def nifti_image_shape(filename):
     return (data.shape)
 
 
-
 def get_header_from_nifti_file(filename):
 
     nii = nib.load(filename)
 
     return nii.header
-
 
 
 """
@@ -103,11 +102,9 @@ output : array
 def component_weighting_function(data):
 
     data[:,:,:] = np.max(data)-data[:,:,:]  #binary inversion
-
-    distance_function = weighting_function=np.zeros(data.shape)
-
+    distance_function = np.zeros(data.shape)
+    weighting_function = np.zeros(data.shape)
     distance_function = ndimage.distance_transform_edt(data)
-
     weighting_function[:,:,:] = 1/(1+0.5*distance_function[:,:,:])
 
     return(weighting_function)
@@ -130,6 +127,8 @@ output : array
   An array 1*3 containing the output point voxel coordinates in image 2
 
 """
+
+
 
 def warp_point_using_flirt_transform(x,y,z,input_header, reference_header, transform):
 # flip [x,y,z] if necessary (based on the sign of the sform or qform determinant)
@@ -161,6 +160,7 @@ def warp_point_using_flirt_transform(x,y,z,input_header, reference_header, trans
 
 
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
@@ -174,6 +174,7 @@ if __name__ == '__main__':
 
 
     args = parser.parse_args()
+
 
     if not os.path.exists(args.output):
         os.makedirs(args.output)
@@ -210,12 +211,16 @@ if __name__ == '__main__':
     Normalized_weighting_functionSet = glob.glob(normalized_weighting_function_path+'*.nii.gz')
     Normalized_weighting_functionSet.sort()
 
-##### create an array of matrices A(x,y,z)= ∑i  w_norm(i)[x,y,z]*log(T(i)) ########
+##### create an array of matrices A(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
 
 
     dim0, dim1, dim2 = nifti_image_shape(args.floating)
+
+
     local_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype=complex)
     final_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype=complex)
+
+
 
     for i in range(0, len(args.transform)):
 
@@ -223,46 +228,47 @@ if __name__ == '__main__':
         normalized_weight = nifti_to_array(Normalized_weighting_functionSet[i])
         final_transform -= local_transform * normalized_weight[:,:,:,newaxis,newaxis]
 
-
-#########Compute the coordinates in the input image ######
-
-    dim0, dim1, dim2 = nifti_image_shape(args.floating)
-
-    coords = np.zeros((3, dim0, dim1, dim2))
-    coords[0,...] = np.arange(dim0)[:,newaxis,newaxis]
-    coords[1,...] = np.arange(dim1)[newaxis,:,newaxis]
-    coords[2,...] = np.arange(dim2)[newaxis,newaxis,:]
-
-
 ######## compute the warped image #################################
 
     header_input = get_header_from_nifti_file(args.floating)
     header_reference = get_header_from_nifti_file(args.reference)
-    input_image_shape = nifti_image_shape(args.floating)
-    reference_image_shape = nifti_image_shape(args.reference)
 
 
-    def warp_point_log_demons(i,j,k):
+    def warp_point_log_demons(point):
 
-        T = la.expm(final_transform[i,j,k])
-        warped_point = warp_point_using_flirt_transform(i , j , k , header_input , header_reference , T.real)
+        a=point[0]
+        b=point[1]
+        c=point[2]
+        T = la.expm(final_transform[a,b,c])
+        warped_point = warp_point_using_flirt_transform(a , b , c , header_input , header_reference , T.real)
 
         return(warped_point)
 
+    print("warped image computing, please wait ...")
 
-    print("warped image computing ...")
+#Generate a list of tuples where each tuple is a combination of parameters: Compute the coordinates in the input image
+#The list will contain all possible combinations of parameters.
 
+    paramlist = list(itertools.product(range(dim0),range(dim1),range(dim2)))
 
-    for i, j, k in itertools.product(np.arange(0,dim0), np.arange(0,dim1), np.arange(0,dim2)):
+#Generate processes equal to the number of cores
+    pool = multiprocessing.Pool()
 
-        coords[:,i,j,k] = warp_point_log_demons(i,j,k)
-        #print(coords[:,i,j,k])
+#Distribute the parameter sets evenly across the cores
+
+    res  = pool.map(warp_point_log_demons, paramlist)
+
+    print("warped image is successfully computed...")
+
+    coords = np.transpose(np.asarray(res))
+    coords = np.resize(coords, (3, dim0, dim1, dim2))
 
 
 #create index for the reference space
+
     i = np.arange(0,dim0)
-    j = np.arange(0,dim1) #input_data.shape[1])
-    k = np.arange(0,dim2)#input_data.shape[2])
+    j = np.arange(0,dim1)
+    k = np.arange(0,dim2)
     iv,jv,kv = np.meshgrid(i,j,k,indexing='ij')
 
     iv = np.reshape(iv,(-1))
@@ -270,6 +276,7 @@ if __name__ == '__main__':
     kv = np.reshape(kv,(-1))
 
 #reshape the warped coordinates
+
     pointset = np.zeros((3,iv.shape[0]))
     pointset[0,:] = iv
     pointset[1,:] = jv
