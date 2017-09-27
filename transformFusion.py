@@ -165,7 +165,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-in', '--floating', help='floating input image', type=str, required = True)
-    parser.add_argument('-ref', '--reference', help='reference image', type=str, required = True)
+    #parser.add_argument('-ref', '--reference', help='reference image', type=str, required = True)
     parser.add_argument('-refweight', '--component', help='', type=str, required = True,action='append')
     parser.add_argument('-t', '--transform', help='', type=str, required = True,action='append')
     parser.add_argument('-o', '--output', help='Output directory', type=str, required = True)
@@ -231,7 +231,7 @@ if __name__ == '__main__':
 ######## compute the warped image #################################
 
     header_input = get_header_from_nifti_file(args.floating)
-    header_reference = get_header_from_nifti_file(args.reference)
+    #header_reference = get_header_from_nifti_file(args.reference)
 
 
     def warp_point_log_demons(point):
@@ -240,7 +240,7 @@ if __name__ == '__main__':
         b=point[1]
         c=point[2]
         T = la.expm(final_transform[a,b,c])
-        warped_point = warp_point_using_flirt_transform(a , b , c , header_input , header_reference , T.real)
+        warped_point = warp_point_using_flirt_transform(a , b , c , header_input , header_input , T.real)
 
         return(warped_point)
 
@@ -289,7 +289,7 @@ if __name__ == '__main__':
 
     map_coordinates(nifti_to_array(args.floating),[coords[0,:],coords[1,:],coords[2,:]],output=val,order=1)
 
-    output_data = np.reshape(val,nifti_image_shape(args.reference))
+    output_data = np.reshape(val,nifti_image_shape(args.floating))
 
 
 #######writing and saving warped image ###
