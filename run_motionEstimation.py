@@ -45,17 +45,21 @@ def Bin_dice(rfile,ifile):
 
 
 
-jobs=[]
-pool = multiprocessing.Pool(8)
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-d', '--data_path', help='Data path', type=str, required = True)
+    parser.add_argument('-motionEstimation', '--script_path', help='motionEstimation.py path', type=str, required = True)
     parser.add_argument('-e', '--excel_file', help='Output Excel file', type=str, required = True)
     parser.add_argument('-o', '--output_path', help='Output directory', type=str, required = True)
-
+    parser.add_argument('-os', '--OperatingSystem', help='Operating system: 0 if Linux and 1 if Mac Os', type=int, required = True)
     args = parser.parse_args()
+
+    jobs=[]
+    pool = multiprocessing.Pool(8)
 
 
     data_path   = args.data_path #'/home/karim/Data/Francois/'
@@ -91,7 +95,7 @@ if __name__ == '__main__':
     for subject in range (0, len(subjectSet)):
 
         static_image=glob.glob(subjectSet[subject]+'/'+data_basename+'*.nii.gz')
-        go='python motionEstimation.py -s '+ static_image[0]
+        go='python ' + args.script_path +' -s '+ static_image[0] + ' -os '+ str(args.OperatingSystem)
 
         subject_name=os.path.basename(subjectSet[subject])
         output_path2= output_path + '/'+subject_name

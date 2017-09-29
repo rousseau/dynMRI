@@ -141,8 +141,17 @@ if __name__ == '__main__':
     parser.add_argument('-d', '--dyn', help='Dynamic 4D input image', type=str, required = True)
     parser.add_argument('-m', '--mask', help='Segmentation high-resolution mask image', type=str, required = True,action='append')
     parser.add_argument('-o', '--output', help='Output directory', type=str, required = True)
+    parser.add_argument('-os', '--OperatingSystem', help='Operating system: 0 if Linux and 1 if Mac Os', type=int, required = True)
 
     args = parser.parse_args()
+
+    if (args.OperatingSystem == 0):
+        call_flirt= 'fsl5.0-flirt'
+        call_fslsplit= 'fsl5.0-fslsplit'
+
+    elif (args.OperatingSystem == 1):
+        call_flirt = 'flirt'
+        call_fslsplit = 'fslsplit'
 
 
 #######################Output path creation##########################
@@ -159,7 +168,7 @@ if __name__ == '__main__':
 ############# split the 4D file into lots of 3D file s###############
 
     output_basename = 'dyn'
-    go = 'fsl5.0-fslsplit '+dynamic+' '+outputpath+output_basename
+    go = call_fslsplit + ' '+dynamic+' '+outputpath+output_basename
     os.system(go)
 
 ############ Get the sorted set of 3D time frames ###################
@@ -208,7 +217,7 @@ if __name__ == '__main__':
         prefix = dynamicSet[t].split('/')[-1].split('.')[0]
         global_outputimage = outputpath+'flirt_global_static_on_'+prefix+'.nii.gz'
         global_outputmat = outputpath+'global_static_on_'+prefix+'.mat'
-        go_init = 'flirt -noresampblur -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -cost mutualinfo  -dof 6 -ref '+refimage+' -in '+movimage+' -out '+global_outputimage+' -omat '+global_outputmat
+        go_init = call_flirt+' -noresampblur -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -cost mutualinfo  -dof 6 -ref '+refimage+' -in '+movimage+' -out '+global_outputimage+' -omat '+global_outputmat
         os.system(go_init)
 
 #########################################################################
@@ -228,7 +237,7 @@ if __name__ == '__main__':
 
             prefix = dynamicSet[t].split('/')[-1].split('.')[0]
             global_mask= outputpath_boneSet[i]+'/global_mask_'+prefix+'_component_'+str(i)+'.nii.gz'
-            go_propagation = 'flirt -applyxfm -noresampblur -ref '+global_imageSet[t]+' -in ' + args.mask[i] + ' -init '+ global_matrixSet[t] + ' -out ' + global_mask + ' -interp nearestneighbour '
+            go_propagation = call_flirt +' -applyxfm -noresampblur -ref '+global_imageSet[t]+' -in ' + args.mask[i] + ' -init '+ global_matrixSet[t] + ' -out ' + global_mask + ' -interp nearestneighbour '
             os.system(go_propagation)
 
 ##########################################################################
@@ -247,11 +256,11 @@ if __name__ == '__main__':
             local_outputimage = outputpath_boneSet[i]+'/flirt_'+prefix+'_on_global_component_'+str(i)+'.nii.gz'
             local_outputmat = outputpath_boneSet[i]+'/transform_'+prefix+'_on_global_component_'+str(i)+'.mat'
             #go_init = 'flirt -searchrx -40 40 -searchry -40 40 -searchrz -40 40  -dof 6 -in '+refimage+' -ref '+global_imageSet[t]+' -out '+local_outputimage+' -omat '+local_outputmat +' -refweight '+ global_maskSet[t]
-            go_init = 'flirt  -searchrx -40 40 -searchry -40 40 -searchrz -40 40   -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
+            go_init = call_flirt +' -searchrx -40 40 -searchry -40 40 -searchrz -40 40   -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
 
 ###################### Talus registration ################################
             if(i==1):
-                go_init = 'flirt  -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -cost normcorr -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
+                go_init = call_flirt +' -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -cost normcorr -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
 
             os.system(go_init)
 
@@ -284,7 +293,7 @@ if __name__ == '__main__':
 
             prefix = dynamicSet[t].split('/')[-1].split('.')[0]
             low_resolution_mask = outputpath_boneSet[i]+'/mask_'+prefix+'_component_'+str(i)+'.nii.gz'
-            go_init = 'flirt -applyxfm -noresampblur -ref '+ dynamicSet[t] + ' -in '+ args.mask[i] + ' -out '+ low_resolution_mask + ' -init '+init_matrixSet[t]+ ' -interp nearestneighbour '
+            go_init = call_flirt + ' -applyxfm -noresampblur -ref '+ dynamicSet[t] + ' -in '+ args.mask[i] + ' -out '+ low_resolution_mask + ' -init '+init_matrixSet[t]+ ' -interp nearestneighbour '
             os.system(go_init)
 
 ######### Finding the time frame that best align with static image  ########
@@ -339,7 +348,7 @@ if __name__ == '__main__':
             final_refweightSet.sort()
             movimage = dynamicSet[t-1]
             refimage = dynamicSet[t]
-            go_init = 'flirt -searchrx -40 40 -searchry -40 40  -searchrz -40 40 -anglerep quaternion  -dof 6 -ref '+refimage
+            go_init = call_flirt + ' -searchrx -40 40 -searchry -40 40  -searchrz -40 40 -anglerep quaternion  -dof 6 -ref '+refimage
             prefix1 = dynamicSet[t].split('/')[-1].split('.')[0]
             prefix2 = dynamicSet[t-1].split('/')[-1].split('.')[0]
             outputimage = output_results+'/flirt_'+prefix2+'_on_'+prefix1+'.nii.gz'
@@ -354,7 +363,7 @@ if __name__ == '__main__':
             direct_static_on_dynSet=glob.glob(output_results+'/'+direct_transform_basename+'*.mat')
             direct_static_on_dynSet.sort()
             out_refweight= output_results+'/mask_'+prefix2+'_component_'+str(i)+'.nii.gz'
-            go_propagation = 'flirt -applyxfm -noresampblur -ref '+dynamicSet[t-1]+' -in ' + args.mask[i] + ' -init '+ direct_static_on_dynSet[0] + ' -out ' +out_refweight  + ' -interp nearestneighbour '
+            go_propagation = call_flirt + ' -applyxfm -noresampblur -ref '+dynamicSet[t-1]+' -in ' + args.mask[i] + ' -init '+ direct_static_on_dynSet[0] + ' -out ' +out_refweight  + ' -interp nearestneighbour '
             os.system(go_propagation)
 
             t-=1
@@ -377,7 +386,7 @@ if __name__ == '__main__':
             final_refweightSet.sort()
             movimage = dynamicSet[t+1]
             refimage = dynamicSet[t]
-            go_init = 'time flirt -searchrx -40 40 -searchry -40 40  -searchrz -40 40 -anglerep quaternion  -dof 6 -ref '+refimage
+            go_init = call_flirt + ' -searchrx -40 40 -searchry -40 40  -searchrz -40 40 -anglerep quaternion  -dof 6 -ref '+refimage
             prefix1 = dynamicSet[t].split('/')[-1].split('.')[0]
             prefix2 = dynamicSet[t+1].split('/')[-1].split('.')[0]
             outputimage = output_results+'/flirt_'+prefix2+'_on_'+prefix1+'.nii.gz'
@@ -390,7 +399,7 @@ if __name__ == '__main__':
             direct_static_on_dynSet=glob.glob(output_results+'/'+direct_transform_basename+'*.mat')
             direct_static_on_dynSet.sort()
             out_refweight= output_results+'/mask_'+prefix2+'_component_'+str(i)+'.nii.gz'
-            go_propagation = 'time flirt -applyxfm -noresampblur -ref '+dynamicSet[t+1]+' -in ' + args.mask[i] + ' -init '+ direct_static_on_dynSet[t+1] + ' -out ' +out_refweight  + ' -interp nearestneighbour '
+            go_propagation = call_flirt + ' -applyxfm -noresampblur -ref '+dynamicSet[t+1]+' -in ' + args.mask[i] + ' -init '+ direct_static_on_dynSet[t+1] + ' -out ' +out_refweight  + ' -interp nearestneighbour '
             os.system(go_propagation)
             final_refweightSet=glob.glob(output_results+'/'+mask_basename+'*.nii.gz')
             final_refweightSet.sort()
