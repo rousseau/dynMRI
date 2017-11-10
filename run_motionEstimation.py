@@ -5,7 +5,7 @@ import multiprocessing
 import nibabel as nib
 from xlwt import Workbook
 import argparse
-
+import numpy as np
 
 # compute the dice score between two binary masks
 #
@@ -42,10 +42,6 @@ def Bin_dice(rfile,ifile):
         dice=2*d1_2/(d1+d2)
 
     return dice
-
-
-
-
 
 
 if __name__ == '__main__':

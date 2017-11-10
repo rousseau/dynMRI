@@ -152,6 +152,8 @@ if __name__ == '__main__':
     elif (args.OperatingSystem == 1):
         call_flirt = 'flirt'
         call_fslsplit = 'fslsplit'
+    else :
+        print(" \n Please select your Operating System: 0 if Linux and 1 if Mac Os \n")
 
 
 #######################Output path creation##########################
@@ -259,8 +261,8 @@ if __name__ == '__main__':
             go_init = call_flirt +' -searchrx -40 40 -searchry -40 40 -searchrz -40 40   -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
 
 ###################### Talus registration ################################
-            if(i==1):
-                go_init = call_flirt +' -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -cost normcorr -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
+            #if(i==1):
+            #    go_init = call_flirt +' -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -cost normcorr -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
 
             os.system(go_init)
 
@@ -430,3 +432,5 @@ if __name__ == '__main__':
             go2= 'mv '+ propagation_imageSet[t] +' '+ outputpath_boneSet[i]+'/flirt_'+prefix1+'_on_'+prefix2+'.nii.gz'
             os.system(go1)
             os.system(go2)
+
+    print(np.argmax(linked_time_frame))
