@@ -71,7 +71,7 @@ if __name__ == '__main__':
 
 #### Directory in which all reconstructed time frames will be saved
 
-    reconstruction_directory='/home/karim/Exp/November/HR_sequence_reconstruction/Healthy_subject/Subject03/Reconstructed_sequence/'
+    reconstruction_directory = args.output+'Reconstructed_sequence/'
     if not os.path.exists(reconstruction_directory):
            os.makedirs(reconstruction_directory)
 

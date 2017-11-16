@@ -41,6 +41,8 @@ import itertools
 from scipy.ndimage.interpolation import map_coordinates
 #from scipy.ndimage.morphology import binary_erosion
 
+import time
+
 import multiprocessing
 
 
@@ -60,9 +62,8 @@ def Matrix_to_text_file(matrix, text_filename):
 def nifti_to_array(filename):
 
     nii = nib.load(filename)
-    data = nii.get_data()
 
-    return (data)
+    return (nii.get_data())
 
 
 def nifti_image_shape(filename):
@@ -202,43 +203,32 @@ if __name__ == '__main__':
     Normalized_weighting_functionSet = glob.glob(normalized_weighting_function_path+'*.nii.gz')
     Normalized_weighting_functionSet.sort()
 
-##### create an array of matrices A(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
+##### create an array of matrices final_transform(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
 
 
     dim0, dim1, dim2 = nifti_image_shape(args.floating)
 
-
-    local_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype=complex)
-    final_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype=complex)
+    #final_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype=complex)
+    final_transform = np.zeros((dim0, dim1, dim2, 4, 4))
 
 
 
     for i in range(0, len(args.transform)):
 
-        local_transform[:,:,:] = la.logm(Text_file_to_matrix(args.transform[i]))
-        normalized_weight = nifti_to_array(Normalized_weighting_functionSet[i])
-        final_transform -= local_transform * normalized_weight[:,:,:,newaxis,newaxis]
+        #local_transform[:,:,:] = la.logm(Text_file_to_matrix(args.transform[i]))
+        #normalized_weight = nifti_to_array(Normalized_weighting_functionSet[i])
+        #final_transform -= local_transform * normalized_weight[:,:,:,newaxis,newaxis]
+        final_transform -= np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis])
 
 ######## compute the warped image #################################
 
     header_input = get_header_from_nifti_file(args.floating)
 
-        #def warp_point_log_demons(point):
-
-        #a=point[0]
-        #b=point[1]
-        #c=point[2]
-        #T = la.expm(final_transform[a,b,c])
-        #warped_point = warp_point_using_flirt_transform(a , b , c , header_input , header_input , T.real)
-
-        #return(warped_point)
 
     def warp_point_log_demons(point):
 
-        #if(ROI[point[0],point[1],point[2]] != 0):
-            #point = warp_point_using_flirt_transform(point[0] , point[1] , point[2] , header_input , header_input , la.expm(final_transform[point[0],point[1],point[2]]).real)
-
         return(warp_point_using_flirt_transform(point[0] , point[1] , point[2] , header_input , header_input , la.expm(final_transform[point[0],point[1],point[2]]).real))
+
 
     print("warped image computing, please wait ...")
 
@@ -247,13 +237,17 @@ if __name__ == '__main__':
 
     paramlist = list(itertools.product(range(dim0),range(dim1),range(dim2)))
 
-#Generate processes equal to the number of cores
+#Generate processes equal to the number of CPU minus two
 
-    pool = multiprocessing.Pool(6)
+    n_CPU = multiprocessing.cpu_count()
+    pool = multiprocessing.Pool(n_CPU-2)
 
 #Distribute the parameter sets evenly across the cores
 
     res  = pool.map(warp_point_log_demons, paramlist)
+
+    #pool.close()
+    #pool.join()
 
     print("warped image is successfully computed...")
 
@@ -294,4 +288,4 @@ if __name__ == '__main__':
 
     i = nib.Nifti1Image(output_data, nii.affine)
     save_path = args.output + args.outputimage
-nib.save(i, save_path)
+    nib.save(i, save_path)
