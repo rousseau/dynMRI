@@ -147,6 +147,39 @@ def warp_point_using_flirt_transform(x,y,z,input_header, reference_header, trans
 	return np.transpose(np.absolute(np.delete(point, 3, 0)))
 
 
+def warp_point_using_flirt_transform2(x,y,z, header, transform):
+# flip [x,y,z] if necessary (based on the sign of the sform or qform determinant)
+	if np.sign(det(header.get_sform()))==1:
+		x = header.get_data_shape()[0]-1-x
+		y = header.get_data_shape()[1]-1-y
+		z = header.get_data_shape()[2]-1-z
+
+#scale the values by multiplying by the corresponding voxel sizes (in mm)
+	point=np.ones(4)
+	point[0] = x*header.get_zooms()[0]
+	point[1] = y*header.get_zooms()[1]
+	point[2] = z*header.get_zooms()[2]
+# apply the FLIRT matrix to map to the reference space
+	point = np.dot(transform, point)
+
+#divide by the corresponding voxel sizes (in mm, of the reference image this time)
+	point[0] = point[0]/header.get_zooms()[0]
+	point[1] = point[1]/header.get_zooms()[1]
+	point[2] = point[2]/header.get_zooms()[2]
+
+#flip the [x,y,z] coordinates (based on the sign of the sform or qform determinant, of the reference image this time)
+	if np.sign(det(header.get_sform()))==1:
+		point[0] = header.get_data_shape()[0]-1-point[0]
+		point[1] = header.get_data_shape()[1]-1-point[1]
+		point[2] = header.get_data_shape()[2]-1-point[2]
+
+	return np.transpose(np.absolute(np.delete(point, 3, 0)))
+
+
+
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
@@ -174,13 +207,14 @@ if __name__ == '__main__':
 
 ######################compute the normalized weighting function of each component #########################
     nii = nib.load(args.component[0])
-    im_gnd = nifti_to_array(args.component[0])
+    #im_gnd = nifti_to_array(args.component[0])
     #ROI = nifti_to_array(args.roi)
 
-    floating_data = nifti_to_array(args.floating)
+    #floating_data = nifti_to_array(args.floating)
+    data_shape = nifti_image_shape(args.component[0])
     dim0, dim1, dim2 = nifti_image_shape(args.floating)
-    sum_of_weighting_functions = np.zeros((im_gnd.shape))
-    Normalized_weighting_function = np.zeros((im_gnd.shape))
+    sum_of_weighting_functions = np.zeros((data_shape))
+    Normalized_weighting_function = np.zeros((data_shape))
 
 
     for i in range(0, len(args.component)):
@@ -195,6 +229,8 @@ if __name__ == '__main__':
         save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i)+'.nii.gz'
         nib.save(k, save_path)
 
+    sum_of_weighting_functions = None
+    Normalized_weighting_function = None
 
 ###############################################################################################################
 
@@ -220,6 +256,7 @@ if __name__ == '__main__':
     def warp_point_log_demons(point):
 
         return(warp_point_using_flirt_transform(point[0] , point[1] , point[2] , header_input , header_input , la.expm(final_log_transform[point[0],point[1],point[2]])))
+        #return(warp_point_using_flirt_transform2(point[0] , point[1] , point[2] , header_input , la.expm(final_log_transform[point[0],point[1],point[2]])))
 
 
     # force the Garbage Collector to release unreferenced memory
@@ -233,7 +270,7 @@ if __name__ == '__main__':
 
     input_coordinates = list(itertools.product(range(dim0),range(dim1),range(dim2)))
 
-#Generate processes equal to the number of CPU minus two
+#Generate processes equal to the number of CPUs
 
     n_CPU = multiprocessing.cpu_count()
     pool = multiprocessing.Pool(n_CPU)
@@ -244,6 +281,8 @@ if __name__ == '__main__':
 
     pool.close()
     pool.join()
+
+    final_log_transform = None
 
     print("warped image is successfully computed...")
 
@@ -287,6 +326,11 @@ if __name__ == '__main__':
     i = nib.Nifti1Image(output_data, nii.affine)
     save_path = args.output + args.outputimage
     nib.save(i, save_path)
+
+
+    coords = None
+    pointset = None
+
 
     ####computing and saving deformation field in the 3 directions of the space############
 

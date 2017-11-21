@@ -79,7 +79,7 @@ if __name__ == '__main__':
            os.makedirs(reconstruction_directory)
 
 
-    for t in range(0, len(LR_componentSet)):
+    for t in range(1, len(LR_componentSet)):
 
         reconstruction = ' python ' + args.transformFusion + ' -in ' + args.floating
 
