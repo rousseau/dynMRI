@@ -3,6 +3,7 @@
 """
   © IMT Atlantique - LATIM-INSERM UMR 1101
   Author(s): Karim Makki (karim.makki@imt-atlantique.fr)
+
   This software is governed by the CeCILL-B license under French law and
   abiding by the rules of distribution of free software.  You can  use,
   modify and/ or redistribute the software under the terms of the CeCILL-B
@@ -41,9 +42,10 @@ import itertools
 from scipy.ndimage.interpolation import map_coordinates
 #from scipy.ndimage.morphology import binary_erosion
 
-import time
-
 import multiprocessing
+
+import gc
+
 
 
 
@@ -89,18 +91,14 @@ component : array of data (binary mask)
 Returns
 -------
 output : array
-  N_dimensional array containing the weighting function value for each voxel
+  N_dimensional array containing the weighting function value for each voxel according to the entered mask
 """
 
 def component_weighting_function(data):
 
-    data[:,:,:] = np.max(data)-data[:,:,:]  #binary inversion
-    distance_function = np.zeros(data.shape)
-    weighting_function = np.zeros(data.shape)
-    distance_function = ndimage.distance_transform_edt(data)
-    weighting_function[:,:,:] = 1/(1+0.5*distance_function[:,:,:])
+    np.subtract(np.max(data), data, data)
 
-    return(weighting_function)
+    return(1/(1+0.5*ndimage.distance_transform_edt(data)))
 
 
 """
@@ -161,6 +159,7 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--transform', help='', type=str, required = True,action='append')
     parser.add_argument('-o', '--output', help='Output directory', type=str, required = True)
     parser.add_argument('-warped_image', '--outputimage', help='Output image name', type=str, required = True)
+    parser.add_argument('-def_field', '--deformation_field', help='Deformation field image name', type=str, required = True)
     #parser.add_argument('-erode', '--eroded', help='binary_erosion kernel size', type=int, required = False)
 
     args = parser.parse_args()
@@ -186,11 +185,11 @@ if __name__ == '__main__':
 
     for i in range(0, len(args.component)):
 
-        sum_of_weighting_functions = np.add(sum_of_weighting_functions, component_weighting_function(nifti_to_array(args.component[i])))
+        sum_of_weighting_functions += component_weighting_function(nifti_to_array(args.component[i]))
 
     for i in range(0, len(args.component)):
 
-        Normalized_weighting_function[:,:,:] = np.divide(component_weighting_function(nifti_to_array(args.component[i])), sum_of_weighting_functions)
+        np.divide(component_weighting_function(nifti_to_array(args.component[i])), sum_of_weighting_functions, Normalized_weighting_function)
 
         k = nib.Nifti1Image(Normalized_weighting_function, nii.affine)
         save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i)+'.nii.gz'
@@ -200,34 +199,31 @@ if __name__ == '__main__':
 ###############################################################################################################
 
 ###### set of computed normalized weighting functions #######
+
     Normalized_weighting_functionSet = glob.glob(normalized_weighting_function_path+'*.nii.gz')
     Normalized_weighting_functionSet.sort()
 
-##### create an array of matrices final_transform(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
 
+##### create an array of matrices: final_transform(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
 
-    dim0, dim1, dim2 = nifti_image_shape(args.floating)
-
-    #final_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype=complex)
-    final_transform = np.zeros((dim0, dim1, dim2, 4, 4))
-
-
+    final_log_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype = np.float16)
 
     for i in range(0, len(args.transform)):
 
-        #local_transform[:,:,:] = la.logm(Text_file_to_matrix(args.transform[i]))
-        #normalized_weight = nifti_to_array(Normalized_weighting_functionSet[i])
-        #final_transform -= local_transform * normalized_weight[:,:,:,newaxis,newaxis]
-        final_transform -= np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis])
+        np.subtract(final_log_transform, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])) , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), final_log_transform)
+
 
 ######## compute the warped image #################################
 
     header_input = get_header_from_nifti_file(args.floating)
 
-
     def warp_point_log_demons(point):
 
-        return(warp_point_using_flirt_transform(point[0] , point[1] , point[2] , header_input , header_input , la.expm(final_transform[point[0],point[1],point[2]]).real))
+        return(warp_point_using_flirt_transform(point[0] , point[1] , point[2] , header_input , header_input , la.expm(final_log_transform[point[0],point[1],point[2]])))
+
+
+    # force the Garbage Collector to release unreferenced memory
+    gc.collect()
 
 
     print("warped image computing, please wait ...")
@@ -235,23 +231,25 @@ if __name__ == '__main__':
 #Generate a list of tuples where each tuple is a combination of parameters: Compute the coordinates in the input image
 #The list will contain all possible combinations of parameters.
 
-    paramlist = list(itertools.product(range(dim0),range(dim1),range(dim2)))
+    input_coordinates = list(itertools.product(range(dim0),range(dim1),range(dim2)))
 
 #Generate processes equal to the number of CPU minus two
 
     n_CPU = multiprocessing.cpu_count()
-    pool = multiprocessing.Pool(n_CPU-2)
+    pool = multiprocessing.Pool(n_CPU)
 
 #Distribute the parameter sets evenly across the cores
 
-    res  = pool.map(warp_point_log_demons, paramlist)
+    output_coordinates  = pool.map(warp_point_log_demons, input_coordinates)
 
-    #pool.close()
-    #pool.join()
+    pool.close()
+    pool.join()
 
     print("warped image is successfully computed...")
 
-    coords = np.transpose(np.asarray(res))
+########### Writing warped image as a nifti file #################
+
+    coords = np.transpose(np.asarray(output_coordinates))
 
     coords = np.resize(coords, (3, dim0, dim1, dim2))
 
@@ -289,3 +287,25 @@ if __name__ == '__main__':
     i = nib.Nifti1Image(output_data, nii.affine)
     save_path = args.output + args.outputimage
     nib.save(i, save_path)
+
+    ####computing and saving deformation field in the 3 directions of the space############
+
+
+    x1, y1, z1 = zip(*input_coordinates)
+    x2, y2, z2 = zip(*output_coordinates)
+
+    def_fieldx = tuple(np.subtract(x2, x1))
+    def_fieldy = tuple(np.subtract(y2, y1))
+    def_fieldz = tuple(np.subtract(z2, z1))
+
+
+    def_fieldx = np.reshape(def_fieldx,nifti_image_shape(args.floating))
+    def_fieldy = np.reshape(def_fieldy,nifti_image_shape(args.floating))
+    def_fieldz = np.reshape(def_fieldz,nifti_image_shape(args.floating))
+
+
+    def_field = np.concatenate((def_fieldx[...,np.newaxis],def_fieldy[...,np.newaxis], def_fieldz[...,np.newaxis]),axis=3) # 4 dimensional volume ... each image in the volume describes the deformation with respect to a specific direction: x, y or z
+    j = nib.Nifti1Image(def_field, nii.affine)
+    save_path2 = args.output + args.deformation_field          #'4D_def_field.nii.gz'
+    nib.save(j, save_path2)
+    print("Deformation field is successfully  saved")

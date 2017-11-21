@@ -1,7 +1,7 @@
 import glob
 import argparse
 import os
-
+import gc
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -24,10 +24,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
 
-    if (args.OperatingSystem == 0):
+
+    if (int(args.OperatingSystem) == 0):
         call_flirt= 'fsl5.0-flirt'
 
-    elif (args.OperatingSystem == 1):
+    elif (int(args.OperatingSystem) == 1):
         call_flirt = 'flirt'
 
     else :
@@ -36,6 +37,7 @@ if __name__ == '__main__':
 
     HRsegmentSet=glob.glob(args.HRsegments+'*nii.gz')
     HRsegmentSet.sort()
+
 
 
     go = call_flirt +' -applyxfm -noresampblur -ref '+args.floating   #' -init '+ global_matrixSet[t] + ' -out ' + global_mask + ' -interp nearestneighbour '
@@ -64,6 +66,7 @@ if __name__ == '__main__':
             go3 = go2 + ' -init '+ transformSet[t] + ' -out '+ HR_component_path +'/HR_'+prefix+'.nii.gz'
             print(go3)
             os.system(go3)
+            gc.collect()
 
 
 ######## Hr sequence reconstruction ###########################
@@ -92,6 +95,7 @@ if __name__ == '__main__':
 
 
 
-        reconstruction += ' -o ' + reconstruction_directory +   ' -warped_image  High_resolution_reconstructed_dyn'+str(t)+'.nii.gz'
+        reconstruction += ' -o ' + reconstruction_directory +   ' -warped_image  High_resolution_reconstructed_dyn'+str(t)+'.nii.gz' + ' -def_field  Deformation_field_dyn'+str(t)+'.nii.gz'
         print(reconstruction)
         os.system(reconstruction)
+        gc.collect()
