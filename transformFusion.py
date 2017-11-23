@@ -44,7 +44,6 @@ from scipy.ndimage.interpolation import map_coordinates
 
 import multiprocessing
 
-import gc
 
 
 
@@ -147,47 +146,11 @@ def warp_point_using_flirt_transform(x,y,z,input_header, reference_header, trans
 	return np.transpose(np.absolute(np.delete(point, 3, 0)))
 
 
-def warp_point_using_flirt_transform2(x,y,z, header, transform):
-# flip [x,y,z] if necessary (based on the sign of the sform or qform determinant)
-	if np.sign(det(header.get_sform()))==1:
-		x = header.get_data_shape()[0]-1-x
-		y = header.get_data_shape()[1]-1-y
-		z = header.get_data_shape()[2]-1-z
-
-#scale the values by multiplying by the corresponding voxel sizes (in mm)
-	point=np.ones(4)
-	point[0] = x*header.get_zooms()[0]
-	point[1] = y*header.get_zooms()[1]
-	point[2] = z*header.get_zooms()[2]
-# apply the FLIRT matrix to map to the reference space
-	point = np.dot(transform, point)
-
-#divide by the corresponding voxel sizes (in mm, of the reference image this time)
-	point[0] = point[0]/header.get_zooms()[0]
-	point[1] = point[1]/header.get_zooms()[1]
-	point[2] = point[2]/header.get_zooms()[2]
-
-#flip the [x,y,z] coordinates (based on the sign of the sform or qform determinant, of the reference image this time)
-	if np.sign(det(header.get_sform()))==1:
-		point[0] = header.get_data_shape()[0]-1-point[0]
-		point[1] = header.get_data_shape()[1]-1-point[1]
-		point[2] = header.get_data_shape()[2]-1-point[2]
-
-	return np.transpose(np.absolute(np.delete(point, 3, 0)))
-
-
-
-
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-in', '--floating', help='floating input image', type=str, required = True)
-
-    #parser.add_argument('-roi', '--roi', help='region of interest in the floating HR image', type=str, required = True)
-
-    #parser.add_argument('-ref', '--reference', help='reference image', type=str, required = True)
     parser.add_argument('-refweight', '--component', help='', type=str, required = True,action='append')
     parser.add_argument('-t', '--transform', help='', type=str, required = True,action='append')
     parser.add_argument('-o', '--output', help='Output directory', type=str, required = True)
@@ -207,10 +170,6 @@ if __name__ == '__main__':
 
 ######################compute the normalized weighting function of each component #########################
     nii = nib.load(args.component[0])
-    #im_gnd = nifti_to_array(args.component[0])
-    #ROI = nifti_to_array(args.roi)
-
-    #floating_data = nifti_to_array(args.floating)
     data_shape = nifti_image_shape(args.component[0])
     dim0, dim1, dim2 = nifti_image_shape(args.floating)
     sum_of_weighting_functions = np.zeros((data_shape))
@@ -229,8 +188,6 @@ if __name__ == '__main__':
         save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i)+'.nii.gz'
         nib.save(k, save_path)
 
-    sum_of_weighting_functions = None
-    Normalized_weighting_function = None
 
 ###############################################################################################################
 
@@ -240,13 +197,17 @@ if __name__ == '__main__':
     Normalized_weighting_functionSet.sort()
 
 
+    del sum_of_weighting_functions
+    del Normalized_weighting_function
+
+
 ##### create an array of matrices: final_transform(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
 
-    final_log_transform = np.zeros((dim0, dim1, dim2, 4, 4), dtype = np.float16)
+    final_log_transform = np.zeros((dim0, dim1, dim2, 4, 4))
 
     for i in range(0, len(args.transform)):
 
-        np.subtract(final_log_transform, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])) , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), final_log_transform)
+        np.subtract(final_log_transform, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), final_log_transform)
 
 
 ######## compute the warped image #################################
@@ -256,11 +217,7 @@ if __name__ == '__main__':
     def warp_point_log_demons(point):
 
         return(warp_point_using_flirt_transform(point[0] , point[1] , point[2] , header_input , header_input , la.expm(final_log_transform[point[0],point[1],point[2]])))
-        #return(warp_point_using_flirt_transform2(point[0] , point[1] , point[2] , header_input , la.expm(final_log_transform[point[0],point[1],point[2]])))
 
-
-    # force the Garbage Collector to release unreferenced memory
-    gc.collect()
 
 
     print("warped image computing, please wait ...")
@@ -279,12 +236,13 @@ if __name__ == '__main__':
 
     output_coordinates  = pool.map(warp_point_log_demons, input_coordinates)
 
+
+    print("warped image is successfully computed...")
+
     pool.close()
     pool.join()
 
-    final_log_transform = None
-
-    print("warped image is successfully computed...")
+    del final_log_transform
 
 ########### Writing warped image as a nifti file #################
 
@@ -328,9 +286,8 @@ if __name__ == '__main__':
     nib.save(i, save_path)
 
 
-    coords = None
-    pointset = None
-
+    del coords
+    del pointset
 
     ####computing and saving deformation field in the 3 directions of the space############
 
@@ -347,9 +304,15 @@ if __name__ == '__main__':
     def_fieldy = np.reshape(def_fieldy,nifti_image_shape(args.floating))
     def_fieldz = np.reshape(def_fieldz,nifti_image_shape(args.floating))
 
+    '''x2 = np.reshape(x2,nifti_image_shape(args.floating))
+    y2 = np.reshape(y2,nifti_image_shape(args.floating))
+    z2 = np.reshape(z2,nifti_image_shape(args.floating))'''
+
 
     def_field = np.concatenate((def_fieldx[...,np.newaxis],def_fieldy[...,np.newaxis], def_fieldz[...,np.newaxis]),axis=3) # 4 dimensional volume ... each image in the volume describes the deformation with respect to a specific direction: x, y or z
     j = nib.Nifti1Image(def_field, nii.affine)
     save_path2 = args.output + args.deformation_field          #'4D_def_field.nii.gz'
     nib.save(j, save_path2)
+    del input_coordinates
+    del output_coordinates
     print("Deformation field is successfully  saved")
