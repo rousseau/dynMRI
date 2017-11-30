@@ -50,10 +50,12 @@ if __name__ == '__main__':
 
 
     if (int(args.OperatingSystem) == 0):
-        call_flirt= 'fsl5.0-flirt'
+        call_flirt = 'fsl5.0-flirt'
+        call_fslmath = 'fsl5.0-fslmaths'
 
     elif (int(args.OperatingSystem) == 1):
         call_flirt = 'flirt'
+        call_fslmath = 'fslmaths'
 
     else :
         print(" \n Please select your Operating System: 0 if Linux and 1 if Mac Os \n")
@@ -61,8 +63,8 @@ if __name__ == '__main__':
     HRsegmentSet=glob.glob(args.HRsegments+'*nii.gz')
     HRsegmentSet.sort()
 
+    go = call_flirt +' -usesqform -applyxfm -noresampblur -ref '+args.floating   #' -init '+ global_matrixSet[t] + ' -out ' + global_mask + ' -interp nearestneighbour '
 
-    go = call_flirt +' -applyxfm -noresampblur -ref '+args.floating   #' -init '+ global_matrixSet[t] + ' -out ' + global_mask + ' -interp nearestneighbour '
 
 ######### Compute warped high_resolution segmentations #######################
 
@@ -74,11 +76,13 @@ if __name__ == '__main__':
         transformSet=glob.glob(args.estimated+'output_path_component'+str(i)+'/final_results/'+'*.mat')
         transformSet.sort()
 
+
         LR_componentSet=glob.glob(args.estimated+'output_path_component'+str(i)+'/final_results/'+'*.nii.gz')
         LR_componentSet.sort()
 
 
         go2 = go + ' -in ' + HRsegmentSet[i]
+
 
         for t in range(0, len(transformSet)):
 
@@ -86,8 +90,12 @@ if __name__ == '__main__':
 
 
             go3 = go2 + ' -init '+ transformSet[t] + ' -out '+ HR_component_path +'/HR_'+prefix+'.nii.gz'
+
             print(go3)
             os.system(go3)
+
+            binarization = call_fslmath + ' ' + HR_component_path +'/HR_'+prefix+'.nii.gz' + ' -thr 0.9  -bin '+  HR_component_path +'/HR_'+prefix+'.nii.gz'
+            os.system(binarization)
 
 
 ######## Hr sequence reconstruction ###########################
@@ -113,7 +121,6 @@ if __name__ == '__main__':
             transformSet.sort()
 
             reconstruction+= ' -refweight ' + HR_componentSet[t] + ' -t ' + transformSet[t]
-
 
 
         reconstruction += ' -o ' + reconstruction_directory +   ' -warped_image  High_resolution_reconstructed_dyn'+str(t)+'.nii.gz' + ' -def_field  Deformation_field_dyn'+str(t)+'.nii.gz'

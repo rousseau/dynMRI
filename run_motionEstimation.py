@@ -55,20 +55,24 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     jobs=[]
-    pool = multiprocessing.Pool(8)
+    pool = multiprocessing.Pool(multiprocessing.cpu_count())
 
 
     data_path   = args.data_path #'/home/karim/Data/Francois/'
     output_path = args.output_path #'/home/karim/Exp/septembre/tuesday'
     save_path   = output_path+'/'+args.excel_file #excel_file.xls'
 
+    print(args.data_path)
+
 
     subject_basename='subject'
     data_basename='201'
     mask_basename='smoothed_segment'
 
-    subjectSet=glob.glob(data_path+subject_basename+'*')
+    subjectSet = glob.glob(data_path+subject_basename+'*')
     subjectSet.sort()
+
+    print(subjectSet)
 
 
     ### Excel file creation

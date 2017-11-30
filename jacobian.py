@@ -64,7 +64,8 @@ if __name__ == '__main__':
     gy_x,gy_y,gy_z = np.gradient(def_field[:,:,:,1])
     gz_x,gz_y,gz_z = np.gradient(def_field[:,:,:,2])
 
-    #  Add identity : as x'= x + u(x), so dx'/dx = 1 + du(x)/dx = I + J where I is the identity matrix
+    #  Add identity : In this case we treat warp field as relative: x' = x + w(x), so dx'/dx = 1 + dw(x)/dx = I + J where I is the identity matrix
+    #  Note that we can also treat warp field as absolute: x' = w(x) so dx'/dx = dw(x)/dx
 
     gx_x +=  1
     gy_y +=  1

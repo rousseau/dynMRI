@@ -146,8 +146,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if (args.OperatingSystem == 0):
-        call_flirt= 'fsl5.0-flirt'
-        call_fslsplit= 'fsl5.0-fslsplit'
+        call_flirt = 'fsl5.0-flirt'
+        call_fslsplit = 'fsl5.0-fslsplit'
 
     elif (args.OperatingSystem == 1):
         call_flirt = 'flirt'
@@ -231,7 +231,7 @@ if __name__ == '__main__':
     global_imageSet.sort()
 
 ##### Propagate manual segmentations into the low_resolution domain #####
-############# using the global etimated transformations #################
+############# using the estimated global transformations ################
 
     for i in range(0,len(outputpath_boneSet)):
 
@@ -239,7 +239,7 @@ if __name__ == '__main__':
 
             prefix = dynamicSet[t].split('/')[-1].split('.')[0]
             global_mask= outputpath_boneSet[i]+'/global_mask_'+prefix+'_component_'+str(i)+'.nii.gz'
-            go_propagation = call_flirt +' -applyxfm -noresampblur -ref '+global_imageSet[t]+' -in ' + args.mask[i] + ' -init '+ global_matrixSet[t] + ' -out ' + global_mask + ' -interp nearestneighbour '
+            go_propagation = call_flirt +' -applyxfm -noresampblur -ref '+global_imageSet[t]+' -in ' + args.mask[i] + ' -init '+ global_matrixSet[t] + ' -out ' + global_mask  #+ ' -interp nearestneighbour '
             os.system(go_propagation)
 
 ##########################################################################
@@ -257,12 +257,12 @@ if __name__ == '__main__':
             refimage = dynamicSet[t]
             local_outputimage = outputpath_boneSet[i]+'/flirt_'+prefix+'_on_global_component_'+str(i)+'.nii.gz'
             local_outputmat = outputpath_boneSet[i]+'/transform_'+prefix+'_on_global_component_'+str(i)+'.mat'
-            #go_init = 'flirt -searchrx -40 40 -searchry -40 40 -searchrz -40 40  -dof 6 -in '+refimage+' -ref '+global_imageSet[t]+' -out '+local_outputimage+' -omat '+local_outputmat +' -refweight '+ global_maskSet[t]
-            go_init = call_flirt +' -searchrx -40 40 -searchry -40 40 -searchrz -40 40   -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
+            #go_init = 'flirt -searchrx -40 40 -searchry -40 40 -searchrz -40 40  -dof 6 -anglerep quaternion  -in '+refimage+' -ref '+global_imageSet[t]+' -out '+local_outputimage+' -omat '+local_outputmat +' -refweight '+ global_maskSet[t]
+            go_init = call_flirt +' -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
 
 ###################### Talus registration ################################
-            #if(i==1):
-            #    go_init = call_flirt +' -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -cost normcorr -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
+            if(i==1):
+                go_init = call_flirt +' -searchrx -40 40 -searchry -40 40 -searchrz -40 40 -cost normcorr -dof 6 -in '+global_imageSet[t]+' -ref '+refimage+' -out '+local_outputimage+' -omat '+local_outputmat +' -inweight '+ global_maskSet[t]
 
             os.system(go_init)
 
@@ -315,12 +315,18 @@ if __name__ == '__main__':
 
             dice_evaluation_array[i][t] = Bin_dice(maskSet[t],global_maskSet[t])
 
-    linked_time_frame=np.prod(dice_evaluation_array, axis=0)
-    t=np.argmax(linked_time_frame) ### the main idea here is to detect the time frame the most closest to the static scan ("no-motion" detection)
+    #linked_time_frame=np.prod(dice_evaluation_array, axis=0)
+    #t=np.argmax(linked_time_frame) ### the main idea here is to detect the time frame the most closest to the static scan ("no-motion" detection)
 
 ########## copy the best "static/dynamic" registration results to the final outputs folder ############
 
     for i in range(0,len(outputpath_boneSet)):
+
+        # Next modification
+
+        t = np.argmax(dice_evaluation_array[i][:])
+
+
 
         maskSet=glob.glob(outputpath_boneSet[i]+'/'+mask_basename+'*.nii.gz')
         maskSet.sort()
@@ -331,7 +337,10 @@ if __name__ == '__main__':
         if not os.path.exists(output_results):
             os.makedirs(output_results)
 
-        t=np.argmax(linked_time_frame)
+        #t=np.argmax(linked_time_frame)
+
+        t=np.argmax(dice_evaluation_array[i][:])
+
 
         copy= 'cp '+maskSet[t]+ '  '+ output_results
         os.system(copy) ######copy mask(t) to the final_results folder
@@ -351,6 +360,7 @@ if __name__ == '__main__':
             movimage = dynamicSet[t-1]
             refimage = dynamicSet[t]
             go_init = call_flirt + ' -searchrx -40 40 -searchry -40 40  -searchrz -40 40 -anglerep quaternion  -dof 6 -ref '+refimage
+
             prefix1 = dynamicSet[t].split('/')[-1].split('.')[0]
             prefix2 = dynamicSet[t-1].split('/')[-1].split('.')[0]
             outputimage = output_results+'/flirt_'+prefix2+'_on_'+prefix1+'.nii.gz'
@@ -378,7 +388,8 @@ if __name__ == '__main__':
         final_refweightSet=glob.glob(output_results+'/'+mask_basename+'*.nii.gz')
         final_refweightSet.sort()
 
-        t=np.argmax(linked_time_frame) #temporal position of the best aligned time frame with the static
+        #t=np.argmax(linked_time_frame) #temporal position of the best aligned time frame with the static
+        t=np.argmax(dice_evaluation_array[i][:])
 
         direct_static_on_dynSet.sort()
         final_refweightSet.sort()
@@ -433,4 +444,4 @@ if __name__ == '__main__':
             os.system(go1)
             os.system(go2)
 
-    print(np.argmax(linked_time_frame))
+        print(np.argmax(dice_evaluation_array[i][:]))
