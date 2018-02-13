@@ -54,15 +54,16 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    ###Load the displacement field u(x) = x'-x where x is the initial position and x' is the target position of the voxel
+    ###Load the displacement field w(x) = x'-x where x is the initial position and x' is the target position of the voxel
 
     def_field = nifti_to_array(args.deffield)
 
-    #### Compute jacobian matrix of the displacement field J = du(x)/dx
+    #### Compute jacobian matrix of the displacement field J = dw(x)/dx
 
     gx_x,gx_y,gx_z = np.gradient(def_field[:,:,:,0])
     gy_x,gy_y,gy_z = np.gradient(def_field[:,:,:,1])
     gz_x,gz_y,gz_z = np.gradient(def_field[:,:,:,2])
+
 
     #  Add identity : In this case we treat warp field as relative: x' = x + w(x), so dx'/dx = 1 + dw(x)/dx = I + J where I is the identity matrix
     #  Note that we can also treat warp field as absolute: x' = w(x) so dx'/dx = dw(x)/dx
@@ -74,6 +75,7 @@ if __name__ == '__main__':
     #### Compute determinant using the rule of Sarrus
 
     Jacobian = ( (gx_x*gy_y*gz_z) + (gy_x*gz_y*gx_z) + (gz_x*gx_y*gy_z) ) - ( (gz_x*gy_y*gx_z) + (gy_x*gx_y*gz_z) + (gx_x*gz_y*gy_z) )
+
 
     #### Save the jacobian as a 3D nifti file
 

@@ -47,6 +47,7 @@ import multiprocessing
 
 
 
+
 # Read from text file and store in matrix
 #
 # Parameters
@@ -108,6 +109,13 @@ def Bin_dice(rfile,ifile):
         dice=2*d1_2/(d1+d2)
 
     return dice
+
+
+def nifti_to_array(filename):
+
+    nii = nib.load(filename)
+
+    return (nii.get_data())
 
 
 # compute the dice score between two blurry masks
@@ -239,7 +247,7 @@ if __name__ == '__main__':
 
             prefix = dynamicSet[t].split('/')[-1].split('.')[0]
             global_mask= outputpath_boneSet[i]+'/global_mask_'+prefix+'_component_'+str(i)+'.nii.gz'
-            go_propagation = call_flirt +' -applyxfm -noresampblur -ref '+global_imageSet[t]+' -in ' + args.mask[i] + ' -init '+ global_matrixSet[t] + ' -out ' + global_mask  #+ ' -interp nearestneighbour '
+            go_propagation = call_flirt +' -applyxfm -noresampblur -ref '+global_imageSet[t]+' -in ' + args.mask[i] + ' -init '+ global_matrixSet[t] + ' -out ' + global_mask  + ' -interp nearestneighbour '
             os.system(go_propagation)
 
 ##########################################################################
@@ -302,6 +310,8 @@ if __name__ == '__main__':
 
     dice_evaluation_array=np.zeros((len(outputpath_boneSet), len(dynamicSet)))
 
+    #Hausdroff_evaluation_array=np.zeros((len(outputpath_boneSet), len(dynamicSet)))
+
     for i in range(0,len(outputpath_boneSet)):
 
         global_maskSet=glob.glob(outputpath_boneSet[i]+'/'+global_mask_basename+'*.nii.gz')
@@ -314,18 +324,16 @@ if __name__ == '__main__':
         for t in range(0, len(dynamicSet)):
 
             dice_evaluation_array[i][t] = Bin_dice(maskSet[t],global_maskSet[t])
+            #Hausdroff_evaluation_array[i][t] = directed_hausdorff(nifti_to_array(maskSet[t]),nifti_to_array(global_maskSet[t]))[0]
 
-    #linked_time_frame=np.prod(dice_evaluation_array, axis=0)
-    #t=np.argmax(linked_time_frame) ### the main idea here is to detect the time frame the most closest to the static scan ("no-motion" detection)
+    linked_time_frame=np.prod(dice_evaluation_array, axis=0)
+    #linked_time_frame=np.prod(Hausdroff_evaluation_array, axis=0)
+    t=np.argmax(linked_time_frame) ### the main idea here is to detect the time frame the most closest to the static scan ("no-motion" detection)
+    #t=np.argmin(linked_time_frame) ### the main idea here is to detect the time frame the most closest to the static scan ("no-motion" detection)
 
 ########## copy the best "static/dynamic" registration results to the final outputs folder ############
 
     for i in range(0,len(outputpath_boneSet)):
-
-        # Next modification
-
-        t = np.argmax(dice_evaluation_array[i][:])
-
 
 
         maskSet=glob.glob(outputpath_boneSet[i]+'/'+mask_basename+'*.nii.gz')
@@ -337,9 +345,8 @@ if __name__ == '__main__':
         if not os.path.exists(output_results):
             os.makedirs(output_results)
 
-        #t=np.argmax(linked_time_frame)
-
-        t=np.argmax(dice_evaluation_array[i][:])
+        t=np.argmax(linked_time_frame)
+        #t=np.argmin(linked_time_frame)
 
 
         copy= 'cp '+maskSet[t]+ '  '+ output_results
@@ -359,7 +366,7 @@ if __name__ == '__main__':
             final_refweightSet.sort()
             movimage = dynamicSet[t-1]
             refimage = dynamicSet[t]
-            go_init = call_flirt + ' -searchrx -40 40 -searchry -40 40  -searchrz -40 40 -anglerep quaternion  -dof 6 -ref '+refimage
+            go_init = call_flirt + ' -searchrx -40 40 -searchry -40 40  -searchrz -40 40  -anglerep quaternion  -dof 6 -ref '+refimage
 
             prefix1 = dynamicSet[t].split('/')[-1].split('.')[0]
             prefix2 = dynamicSet[t-1].split('/')[-1].split('.')[0]
@@ -388,8 +395,8 @@ if __name__ == '__main__':
         final_refweightSet=glob.glob(output_results+'/'+mask_basename+'*.nii.gz')
         final_refweightSet.sort()
 
-        #t=np.argmax(linked_time_frame) #temporal position of the best aligned time frame with the static
-        t=np.argmax(dice_evaluation_array[i][:])
+        t=np.argmax(linked_time_frame) #temporal position of the best aligned time frame with the static
+        #t=np.argmin(linked_time_frame)
 
         direct_static_on_dynSet.sort()
         final_refweightSet.sort()
@@ -399,7 +406,7 @@ if __name__ == '__main__':
             final_refweightSet.sort()
             movimage = dynamicSet[t+1]
             refimage = dynamicSet[t]
-            go_init = call_flirt + ' -searchrx -40 40 -searchry -40 40  -searchrz -40 40 -anglerep quaternion  -dof 6 -ref '+refimage
+            go_init = call_flirt + ' -searchrx -40 40 -searchry -40 40  -searchrz -40 40  -anglerep quaternion  -dof 6 -ref '+refimage
             prefix1 = dynamicSet[t].split('/')[-1].split('.')[0]
             prefix2 = dynamicSet[t+1].split('/')[-1].split('.')[0]
             outputimage = output_results+'/flirt_'+prefix2+'_on_'+prefix1+'.nii.gz'
@@ -444,4 +451,4 @@ if __name__ == '__main__':
             os.system(go1)
             os.system(go2)
 
-        print(np.argmax(dice_evaluation_array[i][:]))
+    print(np.argmax(linked_time_frame))

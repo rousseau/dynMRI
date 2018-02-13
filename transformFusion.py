@@ -39,6 +39,7 @@ import glob
 from numpy.linalg import det
 from numpy import newaxis
 import itertools
+from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage.interpolation import map_coordinates
 #from scipy.ndimage.morphology import binary_erosion
 
@@ -176,13 +177,19 @@ if __name__ == '__main__':
     Normalized_weighting_function = np.zeros((data_shape))
 
 
+    #sigma= 1
+
     for i in range(0, len(args.component)):
 
         sum_of_weighting_functions += component_weighting_function(nifti_to_array(args.component[i]))
 
+        #sum_of_weighting_functions += gaussian_filter(component_weighting_function(nifti_to_array(args.component[i])), sigma) ####### Convolving the weigthing functions with a Gaussian kernel for smoothing
+
     for i in range(0, len(args.component)):
 
         np.divide(component_weighting_function(nifti_to_array(args.component[i])), sum_of_weighting_functions, Normalized_weighting_function)
+        #np.divide(gaussian_filter(component_weighting_function(nifti_to_array(args.component[i])), sigma), sum_of_weighting_functions, Normalized_weighting_function)
+
 
         k = nib.Nifti1Image(Normalized_weighting_function, nii.affine)
         save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i)+'.nii.gz'
@@ -290,7 +297,6 @@ if __name__ == '__main__':
     del pointset
 
     ####computing and saving deformation field in the 3 directions of the space############
-
 
     x1, y1, z1 = zip(*input_coordinates)
     x2, y2, z2 = zip(*output_coordinates)

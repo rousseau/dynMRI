@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import os
 import os.path
 import glob
@@ -6,6 +8,14 @@ import nibabel as nib
 from xlwt import Workbook
 import argparse
 import numpy as np
+import math
+
+
+def nifti_to_array(filename):
+
+    nii = nib.load(filename)
+
+    return (nii.get_data())
 
 # compute the dice score between two binary masks
 #
@@ -42,6 +52,79 @@ def Bin_dice(rfile,ifile):
         dice=2*d1_2/(d1+d2)
 
     return dice
+
+## calculate Hausdorff distance between 3D grids directly ######
+
+### grabbing a box around a given point and taking all the radius inorder to reduce the number of points required to check.
+def bbox(array, point, radius):
+    a = array[np.where(np.logical_and(array[:, 0] >= point[0] - radius, array[:, 0] <= point[0] + radius))]
+    b = a[np.where(np.logical_and(a[:, 1] >= point[1] - radius, a[:, 1] <= point[1] + radius))]
+    c = b[np.where(np.logical_and(b[:, 2] >= point[2] - radius, b[:, 2] <= point[2] + radius))]
+    return c
+
+
+###  hausdroff distance calculation
+
+def hausdorff(surface_a, surface_b):
+
+    # Taking two arrays as input file, the function is searching for the Hausdorff distane of "surface_a" to "surface_b"
+    dists = []
+
+    l = len(surface_a)
+
+    for i in xrange(l):
+
+        # walking through all the points of surface_a
+        dist_min = 1000.0
+        radius = 0
+        b_mod = np.empty(shape=(0, 0, 0))
+
+        # increasing the cube size around the point until the cube contains at least 1 point
+        while b_mod.shape[0] == 0:
+            b_mod = bbox(surface_b, surface_a[i], radius)
+            radius += 1
+
+        # to avoid getting false result (point is close to the edge, but along an axis another one is closer),
+        # increasing the size of the cube
+        b_mod = bbox(surface_b, surface_a[i], radius * math.sqrt(3))
+
+        for j in range(len(b_mod)):
+            # walking through the small number of points to find the minimum distance
+            dist = np.linalg.norm(surface_a[i] - b_mod[j])
+            if dist_min > dist:
+                dist_min = dist
+
+        dists.append(dist_min)
+
+    return np.max(dists)
+
+def Rotation_vector_from_flirt_transform(matrix):  ### equivalent to the fsl tool, avscale
+    s5=matrix[0,2]
+    r12=matrix[0,1]
+    r11=matrix[0,0]
+    r23=matrix[1,2]
+    r33=matrix[2,2]
+    rotation_vector=np.zeros(3)
+    rotation_vector[1]= -math.asin(s5)
+    c5= math.cos(rotation_vector[1])
+    rotation_vector[0]= math.atan2((r23 / c5),(r33 / c5))
+    rotation_vector[2]= math.atan2((r12 / c5),(r11 / c5))
+    rotation_vector[0]= (180*rotation_vector[0])/math.pi
+    rotation_vector[1]= (180*rotation_vector[1])/math.pi
+    rotation_vector[2]= (180*rotation_vector[2])/math.pi
+    np.set_printoptions(precision=6, suppress=True)
+
+    return rotation_vector #return rotation vector in degrees [Rx Ry Rz]'''
+
+def Translation_vector_from_flirt_transform(matrix):    ### equivalent to the fsl tool, avscale
+
+    translation_vector=np.zeros(3)
+    translation_vector[0]=matrix[0,3]
+    translation_vector[1]=matrix[1,3]
+    translation_vector[2]=matrix[2,3]
+
+    return(translation_vector)
+
 
 
 if __name__ == '__main__':
@@ -120,8 +203,8 @@ if __name__ == '__main__':
 
         go2= go1 + ' -d ' + dynamic_sequenceSet[0] + ' -o ' + output_path3
         print(go2)
-        jobs.append(go2)
-    pool.map(os.system,jobs)
+        #jobs.append(go2)
+    #pool.map(os.system,jobs)
 
     pool.close()
     pool.join()
@@ -150,9 +233,23 @@ if __name__ == '__main__':
 
             ground_truth_time_frameSet=glob.glob(ground_truth_componentSet[component]+'/'+'*.nii.gz')
             ground_truth_time_frameSet.sort()
+##### Dice score metric
 
-            sheet1.write(subject+1,component+1,Bin_dice(ground_truth_time_frameSet[0],time_frameSet[0]))
-            sheet2.write(subject+1,component+1,Bin_dice(ground_truth_time_frameSet[1],time_frameSet[len(time_frameSet)-1]))
+            #sheet1.write(subject+1,component+1,Bin_dice(ground_truth_time_frameSet[0],time_frameSet[0]))
+            #sheet2.write(subject+1,component+1,Bin_dice(ground_truth_time_frameSet[1],time_frameSet[len(time_frameSet)-1]))
+
+##### Hausdroff distance metric
+            im1 = nifti_to_array(ground_truth_time_frameSet[0])
+            im2 = nifti_to_array(time_frameSet[0])
+            im3 = nifti_to_array(ground_truth_time_frameSet[1])
+            im4 = nifti_to_array(time_frameSet[len(time_frameSet)-1])
+
+
+            sheet1.write(subject+1,component+1,hausdorff(np.argwhere(im1!=0), np.argwhere(im2!=0)))
+            sheet2.write(subject+1,component+1,hausdorff(np.argwhere(im3!=0), np.argwhere(im4!=0)))
+
+
+
 
 
 book.save(save_path)
