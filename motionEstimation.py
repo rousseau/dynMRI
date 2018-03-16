@@ -141,6 +141,17 @@ def Fuzzy_dice(rfile, ifile):
 
     return res.outputs.dice
 
+def Binarize_fuzzy_mask(fuzzy_mask, binary_mask, threshold):
+
+    nii = nib.load(fuzzy_mask)
+    data = nii.get_data()
+    output = np.zeros(data.shape)
+    output[np.where(data>threshold)]= 1
+    s = nib.Nifti1Image(output, nii.affine)
+    nib.save(s,binary_mask)
+
+    return 0
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='dynMRI')
@@ -249,6 +260,7 @@ if __name__ == '__main__':
             global_mask= outputpath_boneSet[i]+'/global_mask_'+prefix+'_component_'+str(i)+'.nii.gz'
             go_propagation = call_flirt +' -applyxfm -noresampblur -ref '+global_imageSet[t]+' -in ' + args.mask[i] + ' -init '+ global_matrixSet[t] + ' -out ' + global_mask  + ' -interp nearestneighbour '
             os.system(go_propagation)
+            Binarize_fuzzy_mask(global_mask, global_mask, 0.5)
 
 ##########################################################################
 
@@ -305,6 +317,7 @@ if __name__ == '__main__':
             low_resolution_mask = outputpath_boneSet[i]+'/mask_'+prefix+'_component_'+str(i)+'.nii.gz'
             go_init = call_flirt + ' -applyxfm -noresampblur -ref '+ dynamicSet[t] + ' -in '+ args.mask[i] + ' -out '+ low_resolution_mask + ' -init '+init_matrixSet[t]+ ' -interp nearestneighbour '
             os.system(go_init)
+            Binarize_fuzzy_mask(low_resolution_mask, low_resolution_mask, 0.5)
 
 ######### Finding the time frame that best align with static image  ########
 

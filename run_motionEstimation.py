@@ -9,6 +9,8 @@ from xlwt import Workbook
 import argparse
 import numpy as np
 import math
+import medpy
+from medpy.metric.binary import hd
 
 
 def nifti_to_array(filename):
@@ -99,31 +101,21 @@ def hausdorff(surface_a, surface_b):
     return np.max(dists)
 
 def Rotation_vector_from_flirt_transform(matrix):  ### equivalent to the fsl tool, avscale
-    s5=matrix[0,2]
-    r12=matrix[0,1]
-    r11=matrix[0,0]
-    r23=matrix[1,2]
-    r33=matrix[2,2]
-    rotation_vector=np.zeros(3)
-    rotation_vector[1]= -math.asin(s5)
-    c5= math.cos(rotation_vector[1])
-    rotation_vector[0]= math.atan2((r23 / c5),(r33 / c5))
-    rotation_vector[2]= math.atan2((r12 / c5),(r11 / c5))
-    rotation_vector[0]= (180*rotation_vector[0])/math.pi
-    rotation_vector[1]= (180*rotation_vector[1])/math.pi
-    rotation_vector[2]= (180*rotation_vector[2])/math.pi
-    np.set_printoptions(precision=6, suppress=True)
 
-    return rotation_vector #return rotation vector in degrees [Rx Ry Rz]'''
+        rotation_vector=np.zeros(3)
+        rotation_vector[1]= -math.asin(matrix[0,2])
+        c5= math.cos(rotation_vector[1])
+        rotation_vector[1]= 180*rotation_vector[1]/math.pi
+        rotation_vector[0]= 180*math.atan2((matrix[1,2] / c5),(matrix[2,2] / c5))/math.pi
+        rotation_vector[2]= 180*math.atan2((matrix[0,1] / c5),(matrix[0,0] / c5))/math.pi
+        np.set_printoptions(precision=6, suppress=True)
+
+        return rotation_vector #return rotation vector in degrees [Rx Ry Rz]
+
 
 def Translation_vector_from_flirt_transform(matrix):    ### equivalent to the fsl tool, avscale
 
-    translation_vector=np.zeros(3)
-    translation_vector[0]=matrix[0,3]
-    translation_vector[1]=matrix[1,3]
-    translation_vector[2]=matrix[2,3]
-
-    return(translation_vector)
+    return [matrix[0,3], matrix[1,3], matrix[2,3]] #return translation vector in mm [Tx Ty Tz]
 
 
 
@@ -174,7 +166,6 @@ if __name__ == '__main__':
     sheet2.write(0,3,'tibia')
 
 
-
     for subject in range (0, len(subjectSet)):
 
         static_image=glob.glob(subjectSet[subject]+'/'+data_basename+'*.nii.gz')
@@ -203,8 +194,8 @@ if __name__ == '__main__':
 
         go2= go1 + ' -d ' + dynamic_sequenceSet[0] + ' -o ' + output_path3
         print(go2)
-        #jobs.append(go2)
-    #pool.map(os.system,jobs)
+        jobs.append(go2)
+    pool.map(os.system,jobs)
 
     pool.close()
     pool.join()
@@ -245,9 +236,11 @@ if __name__ == '__main__':
             im4 = nifti_to_array(time_frameSet[len(time_frameSet)-1])
 
 
-            sheet1.write(subject+1,component+1,hausdorff(np.argwhere(im1!=0), np.argwhere(im2!=0)))
-            sheet2.write(subject+1,component+1,hausdorff(np.argwhere(im3!=0), np.argwhere(im4!=0)))
+            #sheet1.write(subject+1,component+1,hausdorff(np.argwhere(im1!=0), np.argwhere(im2!=0)))
+            #sheet2.write(subject+1,component+1,hausdorff(np.argwhere(im3!=0), np.argwhere(im4!=0)))
 
+            sheet1.write(subject+1,component+1, hd(im1, im2))
+            sheet2.write(subject+1,component+1, hd(im3, im4))
 
 
 

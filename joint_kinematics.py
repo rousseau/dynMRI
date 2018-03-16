@@ -33,7 +33,7 @@
 
 """
 
-
+import SimpleITK as sitk
 import glob
 import numpy as np
 import os
@@ -41,10 +41,12 @@ from numpy.linalg import inv
 from numpy.linalg import det
 import xlwt
 from xlwt import Workbook
+import xlrd
 import math
 import argparse
 import nibabel as nib
 from scipy.ndimage.interpolation import map_coordinates
+from numpy import linalg as LA
 
 
 """
@@ -154,14 +156,88 @@ def applyxfm(input_image, reference_image, output_image, transform, mode):
     return 0
 
 
-def Binarize_fuzzy_mask(mask, threshold):
+def warp_point_using_flirt_transform(point,input_header, reference_header, transform):
+# flip [x,y,z] if necessary (based on the sign of the sform or qform determinant)
+	if np.sign(det(input_header.get_sform()))==1:
+		point[0] = input_header.get_data_shape()[0]-1-point[0]
+		point[1] = input_header.get_data_shape()[1]-1-point[1]
+		point[2] = input_header.get_data_shape()[2]-1-point[2]
+#scale the values by multiplying by the corresponding voxel sizes (in mm)
+	p=np.ones((4))
+    #point = np.ones(4)
+	p[0] = point[0]*input_header.get_zooms()[0]
+	p[1] = point[1]*input_header.get_zooms()[1]
+	p[2] = point[2]*input_header.get_zooms()[2]
+# apply the FLIRT matrix to map to the reference space
+	p = np.dot(transform, p[:,np.newaxis])
+    #print(point.shape)
 
-    nii = nib.load(mask)
+#divide by the corresponding voxel sizes (in mm, of the reference image this time)
+	p[0, np.newaxis] /= reference_header.get_zooms()[0]
+	p[1, np.newaxis] /= reference_header.get_zooms()[1]
+	p[2, np.newaxis] /= reference_header.get_zooms()[2]
+
+#flip the [x,y,z] coordinates (based on the sign of the sform or qform determinant, of the reference image this time)
+	if np.sign(det(reference_header.get_sform()))==1:
+		p[0, np.newaxis] = reference_header.get_data_shape()[0]-1-p[0, np.newaxis]
+		p[1, np.newaxis] = reference_header.get_data_shape()[1]-1-p[1, np.newaxis]
+		p[2, np.newaxis] = reference_header.get_data_shape()[2]-1-p[2, np.newaxis]
+
+	return np.absolute(np.delete(p, 3, 0))
+
+
+##Given the  XYZ orthogonal coordinate system (image coordinate system), find a transformation, M, that maps an anatomical orthogonal coordinate system UVW to XYZ
+
+## Compute the change of basis matrix to go from one locally defined bone coordinate system to image coordinate system
+
+def Image_to_bone_coordinate_system(image,U,V,W,bone_origin=None):
+
+    nii = nib.load(image)
+
+    M = np.identity(4)
+    # Rotation bloc
+    M[0][0] = U[0]
+    M[0][1] = U[1]
+    M[0][2] = U[2]
+    M[1][0] = V[0]
+    M[1][1] = V[1]
+    M[1][2] = V[2]
+    M[2][0] = W[0]
+    M[2][1] = W[1]
+    M[2][2] = W[2]
+
+    # Translation bloc: here, origin coordinates are expressed in mm
+
+    image_origin = sitk.ReadImage(image).GetOrigin() ## return image origin in mm
+
+    if bone_origin is not None:
+
+        #express translations in mm
+
+        M[0][3] =  -bone_origin[0]*nii.header.get_zooms()[0] + image_origin[0]
+        M[1][3] =  -bone_origin[1]*nii.header.get_zooms()[1] + image_origin[1]
+        M[2][3] =  -bone_origin[2]*nii.header.get_zooms()[2] + image_origin[2]
+   # else: return only rotations
+
+    return(M)
+
+#>>> Ti: 4*4 flirt transformation matrix expressed in the image coordinate system
+#>>> M: 4*4 change of basis transformation matrix (from bone coordinate system to image coordinate system)
+
+
+def Express_transformation_matrix_in_bone_coordinate_system(Ti,Mi):
+
+    return np.dot(np.dot(Mi,Ti),inv(Mi))
+
+
+def Binarize_fuzzy_mask(fuzzy_mask, binary_mask, threshold):
+
+    nii = nib.load(fuzzy_mask)
     data = nii.get_data()
-    binary_mask = np.zeros(data.shape)
-    binary_mask[np.where(data>threshold)]= 1
-    s = nib.Nifti1Image(binary_mask, nii.affine)
-    nib.save(s,mask)
+    output = np.zeros(data.shape)
+    output[np.where(data>threshold)]= 1
+    s = nib.Nifti1Image(output, nii.affine)
+    nib.save(s,binary_mask)
 
     return 0
 
@@ -176,41 +252,249 @@ def Matrix_to_text_file(matrix, text_filename):
 
 
 def Rotation_vector_from_transformation_matrix(matrix):  ##### For more details see pages from 7 to 9: http://www.fil.ion.ucl.ac.uk/spm/doc/books/hbf2/pdfs/Ch2.pdf
-    s5=matrix[0,2]
-    r12=matrix[0,1]
-    r11=matrix[0,0]
-    r23=matrix[1,2]
-    r33=matrix[2,2]
+
     rotation_vector=np.zeros(3)
-    rotation_vector[1]= -math.asin(s5)
+    rotation_vector[1]= -math.asin(matrix[0,2])
     c5= math.cos(rotation_vector[1])
-    rotation_vector[0]= math.atan2((r23 / c5),(r33 / c5))
-    rotation_vector[2]= math.atan2((r12 / c5),(r11 / c5))
+    rotation_vector[1]= 180*rotation_vector[1]/math.pi
+    rotation_vector[0]= 180*math.atan2((matrix[1,2] / c5),(matrix[2,2] / c5))/math.pi
+    rotation_vector[2]= 180*math.atan2((matrix[0,1] / c5),(matrix[0,0] / c5))/math.pi
 
-    rotation_vector[0]= (180*rotation_vector[0])/math.pi
-    rotation_vector[1]= (180*rotation_vector[1])/math.pi
-    rotation_vector[2]= (180*rotation_vector[2])/math.pi
-
-    #np.set_printoptions(precision=6, suppress=True)
     return rotation_vector #return rotation vector in degrees [Rx Ry Rz]
+
 
 def Translation_vector_from_transformation_matrix(matrix):
 
-    translation_vector=np.zeros(3)
-    translation_vector[0]=matrix[0,3]
-    translation_vector[1]=matrix[1,3]
-    translation_vector[2]=matrix[2,3]
-    return(translation_vector) #return translation vector in mm [Tx Ty Tz]
+    return [matrix[0,3], matrix[1,3], matrix[2,3]] #return translation vector in mm [Tx Ty Tz]
+
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
+    parser.add_argument('-s', '--static', help='high-resolution static image', type=str, required = True)
     parser.add_argument('-dyn', '--dynamic', help='dynamic sequence', type=str, required = True)
+    parser.add_argument('-ref', '--reference', help='reference time frame', type=int, required = True)
+    parser.add_argument('-ref_path', '--ref_path', help='path to the folder containing the final results, of the high-resolution temporal reconstruction script. i.e. the folder containig the transformation matrices from static to each time frame.', type=str, required = True)
     parser.add_argument('-m', '--component', help='binary mask of the component in the first image in the low-resolution dynamic sequence', type=str, required = True,action='append')
     parser.add_argument('-o', '--output', help='Output directory', type=str, required = True)
+    parser.add_argument('-exc', '--excel', help='Output Excel file', type=str, required = True)
 
     args = parser.parse_args()
+
+    '''
+    >>> Anatomically based coordinate system:
+    >>> calcaneal coordinate system
+    >>> the calcaneal x-axis(cx) was defined as the unit vector connecting the most anterior-inferior and the posterior-inferior
+         calcaneal points, i.e. define the calcaneal x-axis (cx) from point0 and point1
+    >>> In general the x-axis was directed to the left, the y-axis was directed superiorly and the z-axis was directly anteriorly.
+    >>> the temporary calcaneal z-axis(∼cz) was defined as the unit vector connecting the insertion of the long plantar ligament
+         (also known as the calcaneal origin,(Co) and the most convex point of the posterior-lateral curve of the calcaneus), i.e,
+         define the calcaneal z-axis(cz) from point3 and point4
+    >>> cross products were used to create orthogonal coordinate system. i.e, to determine the calcaneal y-axis (cy)
+    >>> point1 : the most posterior-inferior calcaneal point
+    >>> point2 : the most anterior-inferior calcaneal point
+    >>> point3 : the calcaneal origin "Co", (see sheehan's paper for visual details)
+    >>>
+    '''
+
+    nii = nib.load(args.static)
+
+    '''####### Define the calcaneal coordinate system ##################'''
+
+    ref_matrix_calcaneus = args.ref_path+'propagation/output_path_component0/final_results/direct_static_on_dyn000'+str(args.reference-1)+'_component_0.mat'
+    ref_matrix_talus = args.ref_path+'propagation/output_path_component1/final_results/direct_static_on_dyn000'+str(args.reference-1)+'_component_1.mat'
+    ref_matrix_tibia = args.ref_path+'propagation/output_path_component2/final_results/direct_static_on_dyn000'+str(args.reference-1)+'_component_2.mat'
+
+    #the calcaneal x-axis(cx) was defined as the unit vector connecting the most anterior-inferior and the posterior-inferior calcaneal point.
+
+    ## point0 : the most posterior-inferior calcaneal point
+    point0 = np.zeros([3,1])
+    point0[0] = int(raw_input("Please enter the x_coordinate of the most posterior-inferior calcaneal point: "))-1
+    point0[1] = int(raw_input("Please enter the y_coordinate of the most posterior-inferior calcaneal point: "))-1
+    point0[2] = int(raw_input("Please enter the z_coordinate of the most posterior-inferior calcaneal point: "))-1
+    ## map the point into the neutral position
+    point0= warp_point_using_flirt_transform(point0,nii.header, nii.header, Text_file_to_matrix(ref_matrix_calcaneus))
+
+    ## point1 : the most anterior-inferior calcaneal point
+    point1 = np.zeros([3,1])
+    point1[0] = int(raw_input("Please enter the x_coordinate of the most anterior-inferior calcaneal point: "))-1
+    point1[1] = int(raw_input("Please enter the y_coordinate of the most anterior-inferior calcaneal point: "))-1
+    point1[2] = int(raw_input("Please enter the z_coordinate of the most anterior-inferior calcaneal point: "))-1
+    point1= warp_point_using_flirt_transform(point1,nii.header, nii.header, Text_file_to_matrix(ref_matrix_calcaneus))
+
+    cx = (point1-point0)/LA.norm(point1-point0)
+
+    ## point2 : the most convex point of the posterior-lateral curve of the calcaneus
+    point2= np.zeros([3,1])
+    point2[0] = int(raw_input("Please enter the x_coordinate of the most convex point of the posterior-lateral curve of the calcaneus: "))-1
+    point2[1] = int(raw_input("Please enter the y_coordinate of the most convex point of the posterior-lateral curve of the calcaneus: "))-1
+    point2[2] = int(raw_input("Please enter the z_coordinate of the most convex point of the posterior-lateral curve of the calcaneus: "))-1
+    point2= warp_point_using_flirt_transform(point2,nii.header, nii.header, Text_file_to_matrix(ref_matrix_calcaneus))
+
+    ## point3 : the insertion of the long plantar ligament (also known as the calcaneal origin,(Co))
+    point3= np.zeros([3,1])
+    point3[0] = int(raw_input("Please enter the x_coordinate of the insertion of the long plantar ligament: "))-1
+    point3[1] = int(raw_input("Please enter the y_coordinate of the insertion of the long plantar ligament: "))-1
+    point3[2] = int(raw_input("Please enter the z_coordinate of the insertion of the long plantar ligament : "))-1
+    point3= warp_point_using_flirt_transform(point3,nii.header, nii.header, Text_file_to_matrix(ref_matrix_calcaneus))
+
+
+    ###The temporary calcaneal z-axis(∼cz_t)was defined as the unit vector connecting the insertion of the long plantar ligament (also known as
+    ###the calcaneal origin,(Co) and the most convex point of the posterior-lateral curve of the calcaneus.
+
+    cz_t = (point3-point2)/LA.norm(point3-point2)
+
+    # The cross product of cx and cz in R^3 is a vector perpendicular to both cx and cz
+    ###For the calcaneus, cy was defined as(∼cz×cx)
+
+    cy = np.cross(cz_t, cx, axis=0)
+    cy/= LA.norm(cy)
+
+    ###For the calcaneus, cz was defined as(cx×cy)
+
+    cz = np.cross(cx,cy, axis=0)
+    cz/= LA.norm(cz)
+
+    '''####### Define the talar coordinate system ##################
+    >>> Anatomically based coordinate system:
+    >>> the talar x-axis(ax) was defined as the unit vector that bisected the arc formed by the two lines connecting the talar
+    sinus with the most anterior-superior and anterior-inferior talar points.
+    '''
+
+    #talar sinus point
+    point4 = np.zeros([3,1])
+    point4[0] = int(raw_input("Please enter the x_coordinate of the talar sinus point: "))-1
+    point4[1] = int(raw_input("Please enter the y_coordinate of the talar sinus point: "))-1
+    point4[2] = int(raw_input("Please enter the z_coordinate of the talar sinus point: "))-1
+    point4= warp_point_using_flirt_transform(point4,nii.header, nii.header, Text_file_to_matrix(ref_matrix_talus))
+
+    #most anterior-superior talar point
+    point5 = np.zeros([3,1])
+    point5[0] = int(raw_input("Please enter the x_coordinate of the most anterior-superior talar point: "))-1
+    point5[1] = int(raw_input("Please enter the y_coordinate of the most anterior-superior talar point: "))-1
+    point5[2] = int(raw_input("Please enter the z_coordinate of the most anterior-superior talar point: "))-1
+    point5= warp_point_using_flirt_transform(point5,nii.header, nii.header, Text_file_to_matrix(ref_matrix_talus))
+
+    #most anterior-inferior talar point
+    point6 = np.zeros([3,1])
+    point6[0] = int(raw_input("Please enter the x_coordinate of the most anterior-inferior talar point: "))-1
+    point6[1] = int(raw_input("Please enter the y_coordinate of the most anterior-inferior talar point: "))-1
+    point6[2] = int(raw_input("Please enter the z_coordinate of the most anterior-inferior talar point: "))-1
+    point6= warp_point_using_flirt_transform(point6,nii.header, nii.header, Text_file_to_matrix(ref_matrix_talus))
+
+
+    ax= (point5-point4)*LA.norm(point6-point4) + (point6-point4)*LA.norm(point5-point4)
+    ax/= LA.norm(ax)
+    #####################################################################################
+
+    ##>>> the temporary talar y-axis(∼ay) was defined as the line that bisected the arc formed by the triangle defining the distal
+    ##talar surface directly inferior to the talar dome. Ao was the most inferior point on the talar dome section of the talus.
+    #Ao: the most inferior point on the talar dome section of the talus
+
+    point7 = np.zeros([3,1])
+    point7[0] = int(raw_input("Please enter the x_coordinate of the most inferior point on the talar dome section of the talus: "))-1
+    point7[1] = int(raw_input("Please enter the y_coordinate of the most inferior point on the talar dome section of the talus: "))-1
+    point7[2] = int(raw_input("Please enter the z_coordinate of the most inferior point on the talar dome section of the talus: "))-1
+    point7= warp_point_using_flirt_transform(point7,nii.header, nii.header, Text_file_to_matrix(ref_matrix_talus))
+
+    #Defining the distal talar surface directly inferior to the talar dome:
+
+    #point A:
+    point8 = np.zeros([3,1])
+    point8[0] = int(raw_input("Defining the distal talar surface directly inferior to the talar dome between A and B, please enter the x_coordinate of the point A: "))-1
+    point8[1] = int(raw_input("Defining the distal talar surface directly inferior to the talar dome between A and B, please enter the y_coordinate of the point A: "))-1
+    point8[2] = int(raw_input("Defining the distal talar surface directly inferior to the talar dome between A and B, please enter the z_coordinate of the point A: "))-1
+    point8= warp_point_using_flirt_transform(point8,nii.header, nii.header, Text_file_to_matrix(ref_matrix_talus))
+
+    #point B:
+    point9 = np.zeros([3,1])
+    point9[0] = int(raw_input("Defining the distal talar surface directly inferior to the talar dome between A and B, please enter the x_coordinate of the point B: "))-1
+    point9[1] = int(raw_input("Defining the distal talar surface directly inferior to the talar dome between A and B, please enter the y_coordinate of the point B: "))-1
+    point9[2] = int(raw_input("Defining the distal talar surface directly inferior to the talar dome between A and B, please enter the z_coordinate of the point B: "))-1
+    point9= warp_point_using_flirt_transform(point9,nii.header, nii.header, Text_file_to_matrix(ref_matrix_talus))
+
+    ay_t= (point9-point7)*LA.norm(point8-point7) + (point8-point7)*LA.norm(point9-point7)
+    ay_t/= LA.norm(ay_t)
+
+    #>>> For the talus tz was defined as (∼ty×tx) and ty was defined as(tx×tz)
+
+    # The cross product of ax and ay in R^3 is a vector perpendicular to both ax and ay
+
+    az = np.cross(ax,ay_t,axis=0)
+    az/= LA.norm(az)
+
+    ay = np.cross(az, ax,axis=0)
+    ay/= LA.norm(ay)
+
+
+    '''####### Define the tibial coordinate system ##################
+    >>> Anatomically based coordinate system:
+    >>>  the tibial y-axis,(ty) was defined as the unit vector parallel to the tibial anterior edge in the sagittal-oblique image
+    '''
+    #point P1: inferior point from the the tibial anterior edge
+    point10 = np.zeros([3,1])
+    point10[0] = int(raw_input("please enter the x_coordinate of an inferior point from the the tibial anterior edge in the sagittal-oblique image: "))-1
+    point10[1] = int(raw_input("please enter the y_coordinate of an inferior point from the the tibial anterior edge in the sagittal-oblique image: "))-1
+    point10[2] = int(raw_input("please enter the z_coordinate of an inferior point from the the tibial anterior edge in the sagittal-oblique image: "))-1
+    point10= warp_point_using_flirt_transform(point10,nii.header, nii.header, Text_file_to_matrix(ref_matrix_tibia))
+
+    #point P2: superior point from the the tibial anterior edge
+
+    point11 = np.zeros([3,1])
+    point11[0] = int(raw_input("please enter the x_coordinate of a superior point from the the tibial anterior edge in the sagittal-oblique image: "))-1
+    point11[1] = int(raw_input("please enter the y_coordinate of a superior point from the the tibial anterior edge in the sagittal-oblique image: "))-1
+    point11[2] = int(raw_input("please enter the z_coordinate of a superior point from the the tibial anterior edge in the sagittal-oblique image: "))-1
+    point11= warp_point_using_flirt_transform(point11,nii.header, nii.header, Text_file_to_matrix(ref_matrix_tibia))
+
+    ty = (point11-point10)/LA.norm(point11-point10)
+
+    #the temporary tibial z-axis(∼tz) was defined as the unit vector connecting the most lateral and medial tibial points
+
+    #point P3: the most external lateral tibial point
+    point12 = np.zeros([3,1])
+    point12[0] = int(raw_input("please enter the x_coordinate of the most external lateral tibial point: "))-1
+    point12[1] = int(raw_input("please enter the y_coordinate of the most external lateral tibial point: "))-1
+    point12[2] = int(raw_input("please enter the z_coordinate of the most external lateral tibial point: "))-1
+    point12= warp_point_using_flirt_transform(point12,nii.header, nii.header, Text_file_to_matrix(ref_matrix_tibia))
+
+    #point P3: the most internal lateral tibial point
+    point13 = np.zeros([3,1])
+    point13[0] = int(raw_input("please enter the x_coordinate of the most internal lateral tibial point: "))-1
+    point13[1] = int(raw_input("please enter the y_coordinate of the most internal lateral tibial point: "))-1
+    point13[2] = int(raw_input("please enter the z_coordinate of the most internal lateral tibial point: "))-1
+    point13= warp_point_using_flirt_transform(point13,nii.header, nii.header, Text_file_to_matrix(ref_matrix_tibia))
+
+    tz_t = (point12-point13)/LA.norm(point12-point13)
+    tz_t/= LA.norm(tz_t)
+
+    tx = np.cross(ty, tz_t,axis=0)
+    tx/= LA.norm(tx)
+
+    tz = np.cross(tx, ty,axis=0)
+    tz/= LA.norm(tz)
+
+    '''
+    >>> Define origins:
+
+    Co: the calcaneal origin was defined as the insertion of the long plantar ligament
+
+    Ao: the talar origin was defined as the most inferior point on the talar dome section of the talus
+
+    To: The tibial origin was defined as the point that bisected ∼tz
+
+    '''
+
+    Co = point3
+    Ao = point7
+    To = (point12+point13)/2
+
+    ### Compute the change of basis matrices
+
+    M_calcaneus = Image_to_bone_coordinate_system(args.static,cx,cy,cz,bone_origin=Co)
+    M_talus = Image_to_bone_coordinate_system(args.static,ax,ay,az,bone_origin=Ao)
+    M_tibia = Image_to_bone_coordinate_system(args.static,tx,ty,tz,bone_origin=To)
+
 
     outputpath= args.output+'bone_motions/'
     if not os.path.exists(outputpath):
@@ -220,27 +504,6 @@ if __name__ == '__main__':
         component_outputpath=outputpath+'component'+str(i)
         if not os.path.exists(component_outputpath):
             os.makedirs(component_outputpath)
-
-    #Create folder for subtalar (calcaneal-talar) joint
-
-    subtalar_outputpath = args.output+'calcaneal_talar_joint'
-    if not os.path.exists(subtalar_outputpath):
-        os.makedirs(subtalar_outputpath)
-
-
-    #Create folder for calcaneal-tibial complex
-
-    calcaneal_tibial_outputpath = args.output+'calcaneal_tibial_complex'
-    if not os.path.exists(calcaneal_tibial_outputpath):
-        os.makedirs(calcaneal_tibial_outputpath)
-
-
-
-    #Create folder for talocrural (talar-tibial) joint
-
-    talocrural_outputpath = args.output+'talar_tibial_joint'
-    if not os.path.exists(talocrural_outputpath):
-        os.makedirs(talocrural_outputpath)
 
 
     boneSet=glob.glob(outputpath+'/*')
@@ -290,133 +553,165 @@ if __name__ == '__main__':
             # Mask warping
 
             applyxfm(input_mask, dynamicSet[i+1], output_mask, Text_file_to_matrix(output_matrix), 'nearest')
-            Binarize_fuzzy_mask(output_mask, 0.5)
+            Binarize_fuzzy_mask(output_mask, output_mask, 0.5)
 
-    ### Excel file creation for individual bone motions
-
-    book = xlwt.Workbook()
+    change_of_basis_matrix = [M_calcaneus, M_talus, M_tibia]
 
     for bone in range (0, len(args.component)):
 
-        sheet = book.add_sheet('component'+str(bone))
-        sheet.write(0,1,'Rx(deg)')
-        sheet.write(0,2,'Ry(deg)')
-        sheet.write(0,3,'Rz(deg)')
-        sheet.write(0,4,'Tx(mm)')
-        sheet.write(0,5,'Ty(mm)')
-        sheet.write(0,6,'Tz(mm)')
+        image_matrixSet = glob.glob(outputpath+'/component'+str(bone)+'/'+'*.mat')
+        image_matrixSet.sort()
 
-        transformSet = glob.glob(boneSet[bone]+'/'+transform_basename+'*.mat')
-        transformSet.sort()
+        # create one excel file per bone
+        book = xlwt.Workbook()
+        # add new colour to palette and set RGB colour value
+        xlwt.add_palette_colour("custom_colour", 0x29) #light_turquoise for forward motion
+        style_f = xlwt.easyxf('pattern: pattern solid, fore_colour custom_colour')
 
+        xlwt.add_palette_colour("new_custom_colour", 0x34) #light orange for backward motion
+        style_b = xlwt.easyxf('pattern: pattern solid, fore_colour new_custom_colour')
 
-        for t in range(0, len(transformSet)):
-            sheet.write(t+1,0,'time '+str(t))
-            sheet.write(t+1,1,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(transformSet[t]))[0])
-            sheet.write(t+1,2,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(transformSet[t]))[1])
-            sheet.write(t+1,3,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(transformSet[t]))[2])
+        # create subfolders for joints of interest
 
-            sheet.write(t+1,4,Translation_vector_from_transformation_matrix(Text_file_to_matrix(transformSet[t]))[0])
-            sheet.write(t+1,5,Translation_vector_from_transformation_matrix(Text_file_to_matrix(transformSet[t]))[1])
-            sheet.write(t+1,6,Translation_vector_from_transformation_matrix(Text_file_to_matrix(transformSet[t]))[2])
+        for c in range (len(change_of_basis_matrix)):
 
+            new_folder = outputpath+'/component'+str(bone)+'/bone'+str(bone)+'_with_respect_to_bone_'+str(c)
+            if not os.path.exists(new_folder):
+                os.makedirs(new_folder)
+            sheet = book.add_sheet('joint'+str(bone)+'__'+str(c))
 
-    book.save(outputpath+'motions.xlsx')
+            sheet.write(0,1,'Rx(deg)')
+            sheet.write(0,2,'Ry(deg)')
+            sheet.write(0,3,'Rz(deg)')
+            sheet.write(0,4,'Tx(mm)')
+            sheet.write(0,5,'Ty(mm)')
+            sheet.write(0,6,'Tz(mm)')
 
+            sheet.write(0,7,'cumsum Rx')
+            sheet.write(0,8,'cumsum Ry')
+            sheet.write(0,9,'cumsum Rz')
+            sheet.write(0,10,'cumsum Tx')
+            sheet.write(0,11,'cumsum Ty')
+            sheet.write(0,12,'cumsum Tz')
 
-    calcaneal_transformSet =  glob.glob(outputpath+'component0/'+transform_basename+'*.mat')
-    calcaneal_transformSet.sort()
+            s_path = args.excel+'component'+str(bone)+'/component_'+str(bone)+'.xls'
 
-    talar_transformSet =  glob.glob(outputpath+'component1/'+transform_basename+'*.mat')
-    talar_transformSet.sort()
+            cumsum_Rx_backward = 0
+            cumsum_Ry_backward = 0
+            cumsum_Rz_backward = 0
+            cumsum_Tx_backward = 0
+            cumsum_Ty_backward = 0
+            cumsum_Tz_backward = 0
 
-    tibial_transformSet =  glob.glob(outputpath+'component2/'+transform_basename+'*.mat')
-    tibial_transformSet.sort()
+            cumsum_Rx_forward = 0
+            cumsum_Ry_forward = 0
+            cumsum_Rz_forward = 0
+            cumsum_Tx_forward = 0
+            cumsum_Ty_forward = 0
+            cumsum_Tz_forward = 0
 
-
-
-    for t in range(0, len(calcaneal_transformSet)):
-        prefix = dynamicSet[t].split('/')[-1].split('.')[0]
-
-        #Subtalar (calcaneal-talar) joint
-        subtalar_matrix = subtalar_outputpath+'/'+'matrix_subtalar_'+prefix+'.mat'
-        Matrix_to_text_file(np.dot(Text_file_to_matrix(calcaneal_transformSet[t]) , Text_file_to_matrix(talar_transformSet[t])), subtalar_matrix)
-
-        #Calcaneal-tibial complex
-        Calcaneal_tibial_matrix = calcaneal_tibial_outputpath+'/'+'matrix_calcaneal_tibial_'+prefix+'.mat'
-        Matrix_to_text_file(np.dot(Text_file_to_matrix(calcaneal_transformSet[t]) , Text_file_to_matrix(tibial_transformSet[t])), Calcaneal_tibial_matrix)
-
-        #Talocrural (talar-tibial) joint
-        talocrural_matrix = talocrural_outputpath+'/'+'matrix_talocrural_'+prefix+'.mat'
-        Matrix_to_text_file(np.dot(Text_file_to_matrix(talar_transformSet[t]) , Text_file_to_matrix(tibial_transformSet[t])), talocrural_matrix)
-
-
-    subtalar_matrixSet = glob.glob(subtalar_outputpath+'/'+transform_basename+'*.mat')
-    subtalar_matrixSet.sort()
-
-    Calcaneal_tibial_matrixSet = glob.glob(calcaneal_tibial_outputpath+'/'+transform_basename+'*.mat')
-    Calcaneal_tibial_matrixSet.sort()
-
-    talocrural_matrixSet = glob.glob(talocrural_outputpath+'/'+transform_basename+'*.mat')
-    talocrural_matrixSet.sort()
+            for i in range(0, len(dynamicSet)-1):
+                prefix = dynamicSet[i].split('/')[-1].split('.')[0]
+                joint = Express_transformation_matrix_in_bone_coordinate_system(Text_file_to_matrix(image_matrixSet[i]),change_of_basis_matrix[c])
+                save_path = new_folder+'/joint_kinematics'+prefix+'.mat'
+                Matrix_to_text_file(joint, save_path)
 
 
-### Excel file creation for coupled bone motions
+                jo = Express_transformation_matrix_in_bone_coordinate_system(inv(Text_file_to_matrix(image_matrixSet[i])),change_of_basis_matrix[c])
+                sheet.write(i+2,0,'tf'+str(i+1)+' on tf'+str(i+2),style_f)
 
-    book1 = xlwt.Workbook()
+                #rotations
+                sheet.write(i+2,1,Rotation_vector_from_transformation_matrix(jo)[0],style_f)
+                cumsum_Rx_forward += Rotation_vector_from_transformation_matrix(jo)[0]
+                sheet.write(i+2,7,cumsum_Rx_forward,style_f)
 
-    sheet1 = book1.add_sheet('Subtalar joint')
-    sheet1.write(0,1,'Rx(deg)')
-    sheet1.write(0,2,'Ry(deg)')
-    sheet1.write(0,3,'Rz(deg)')
-    sheet1.write(0,4,'Tx(mm)')
-    sheet1.write(0,5,'Ty(mm)')
-    sheet1.write(0,6,'Tz(mm)')
+                sheet.write(i+2,2,Rotation_vector_from_transformation_matrix(jo)[1],style_f)
+                cumsum_Ry_forward += Rotation_vector_from_transformation_matrix(jo)[1]
+                sheet.write(i+2,8,cumsum_Ry_forward,style_f)
 
-    sheet2 = book1.add_sheet('Calcaneal-tibial complex')
-    sheet2.write(0,1,'Rx(deg)')
-    sheet2.write(0,2,'Ry(deg)')
-    sheet2.write(0,3,'Rz(deg)')
-    sheet2.write(0,4,'Tx(mm)')
-    sheet2.write(0,5,'Ty(mm)')
-    sheet2.write(0,6,'Tz(mm)')
+                sheet.write(i+2,3,Rotation_vector_from_transformation_matrix(jo)[2],style_f)
+                cumsum_Rz_forward += Rotation_vector_from_transformation_matrix(jo)[2]
+                sheet.write(i+2,9,cumsum_Rz_forward,style_f)
 
-    sheet3 = book1.add_sheet('Talocrural joint')
-    sheet3.write(0,1,'Rx(deg)')
-    sheet3.write(0,2,'Ry(deg)')
-    sheet3.write(0,3,'Rz(deg)')
-    sheet3.write(0,4,'Tx(mm)')
-    sheet3.write(0,5,'Ty(mm)')
-    sheet3.write(0,6,'Tz(mm)')
+                #translations
+                sheet.write(i+2,4,Translation_vector_from_transformation_matrix(jo)[0],style_f)
+                cumsum_Tx_forward += Translation_vector_from_transformation_matrix(jo)[0]
+                sheet.write(i+2,10,cumsum_Tx_forward,style_f)
+
+                sheet.write(i+2,5,Translation_vector_from_transformation_matrix(jo)[1],style_f)
+                cumsum_Ty_forward += Translation_vector_from_transformation_matrix(jo)[1]
+                sheet.write(i+2,11,cumsum_Ty_forward,style_f)
+
+                sheet.write(i+2,6,Translation_vector_from_transformation_matrix(jo)[2],style_f)
+                cumsum_Tz_forward += Translation_vector_from_transformation_matrix(jo)[2]
+                sheet.write(i+2,12,cumsum_Tz_forward,style_f)
+
+        book.save(s_path)
+'''
+                if (i < args.reference-1):
+
+                    jo = Express_transformation_matrix_in_bone_coordinate_system(Text_file_to_matrix(image_matrixSet[args.reference-i-2]),change_of_basis_matrix[c])
+                    sheet.write(i+2,0,'tf'+str(args.reference-i)+' on tf'+str(args.reference-i-1), style_b)
+
+                    #rotations
+                    sheet.write(i+2,1,Rotation_vector_from_transformation_matrix(jo)[0],style_b)
+                    cumsum_Rx_backward += Rotation_vector_from_transformation_matrix(jo)[0]
+                    sheet.write(i+2,7,cumsum_Rx_backward,style_b)
 
 
-    for t in range(0, len(subtalar_matrixSet)):
+                    sheet.write(i+2,2,Rotation_vector_from_transformation_matrix(jo)[1],style_b)
+                    cumsum_Ry_backward += Rotation_vector_from_transformation_matrix(jo)[1]
+                    sheet.write(i+2,8,cumsum_Ry_backward,style_b)
 
-        sheet1.write(t+1,0,'time '+str(t))
-        sheet1.write(t+1,1,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(subtalar_matrixSet[t]))[0])
-        sheet1.write(t+1,2,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(subtalar_matrixSet[t]))[1])
-        sheet1.write(t+1,3,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(subtalar_matrixSet[t]))[2])
+                    sheet.write(i+2,3,Rotation_vector_from_transformation_matrix(jo)[2],style_b)
+                    cumsum_Rz_backward += Rotation_vector_from_transformation_matrix(jo)[2]
+                    sheet.write(i+2,9,cumsum_Rz_backward,style_b)
 
-        sheet1.write(t+1,4,Translation_vector_from_transformation_matrix(Text_file_to_matrix(subtalar_matrixSet[t]))[0])
-        sheet1.write(t+1,5,Translation_vector_from_transformation_matrix(Text_file_to_matrix(subtalar_matrixSet[t]))[1])
-        sheet1.write(t+1,6,Translation_vector_from_transformation_matrix(Text_file_to_matrix(subtalar_matrixSet[t]))[2])
+                    #translations
+                    sheet.write(i+2,4,Translation_vector_from_transformation_matrix(jo)[0],style_b)
+                    cumsum_Tx_backward += Translation_vector_from_transformation_matrix(jo)[0]
+                    sheet.write(i+2,10,cumsum_Tx_backward,style_b)
 
-        sheet2.write(t+1,0,'time '+str(t))
-        sheet2.write(t+1,1,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(Calcaneal_tibial_matrixSet[t]))[0])
-        sheet2.write(t+1,2,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(Calcaneal_tibial_matrixSet[t]))[1])
-        sheet2.write(t+1,3,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(Calcaneal_tibial_matrixSet[t]))[2])
+                    sheet.write(i+2,5,Translation_vector_from_transformation_matrix(jo)[1],style_b)
+                    cumsum_Ty_backward += Translation_vector_from_transformation_matrix(jo)[1]
+                    sheet.write(i+2,11,cumsum_Ty_backward,style_b)
 
-        sheet2.write(t+1,4,Translation_vector_from_transformation_matrix(Text_file_to_matrix(Calcaneal_tibial_matrixSet[t]))[0])
-        sheet2.write(t+1,5,Translation_vector_from_transformation_matrix(Text_file_to_matrix(Calcaneal_tibial_matrixSet[t]))[1])
-        sheet2.write(t+1,6,Translation_vector_from_transformation_matrix(Text_file_to_matrix(Calcaneal_tibial_matrixSet[t]))[2])
+                    sheet.write(i+2,6,Translation_vector_from_transformation_matrix(jo)[2],style_b)
+                    cumsum_Tz_backward += Translation_vector_from_transformation_matrix(jo)[2]
+                    sheet.write(i+2,12,cumsum_Tz_backward,style_b)
 
-        sheet3.write(t+1,0,'time '+str(t))
-        sheet3.write(t+1,1,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(talocrural_matrixSet[t]))[0])
-        sheet3.write(t+1,2,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(talocrural_matrixSet[t]))[1])
-        sheet3.write(t+1,3,Rotation_vector_from_transformation_matrix(Text_file_to_matrix(talocrural_matrixSet[t]))[2])
 
-        sheet3.write(t+1,4,Translation_vector_from_transformation_matrix(Text_file_to_matrix(talocrural_matrixSet[t]))[0])
-        sheet3.write(t+1,5,Translation_vector_from_transformation_matrix(Text_file_to_matrix(talocrural_matrixSet[t]))[1])
-        sheet3.write(t+1,6,Translation_vector_from_transformation_matrix(Text_file_to_matrix(talocrural_matrixSet[t]))[2])
+                else:
 
-    book1.save(outputpath+'kinematics.xlsx')
+                    jo = Express_transformation_matrix_in_bone_coordinate_system(inv(Text_file_to_matrix(image_matrixSet[i])),change_of_basis_matrix[c])
+                    sheet.write(i+2,0,'tf'+str(i+1)+' on tf'+str(i+2),style_f)
+
+                    #rotations
+                    sheet.write(i+2,1,Rotation_vector_from_transformation_matrix(jo)[0],style_f)
+                    cumsum_Rx_forward += Rotation_vector_from_transformation_matrix(jo)[0]
+                    sheet.write(i+2,7,cumsum_Rx_forward,style_f)
+
+                    sheet.write(i+2,2,Rotation_vector_from_transformation_matrix(jo)[1],style_f)
+                    cumsum_Ry_forward += Rotation_vector_from_transformation_matrix(jo)[1]
+                    sheet.write(i+2,8,cumsum_Ry_forward,style_f)
+
+                    sheet.write(i+2,3,Rotation_vector_from_transformation_matrix(jo)[2],style_f)
+                    cumsum_Rz_forward += Rotation_vector_from_transformation_matrix(jo)[2]
+                    sheet.write(i+2,9,cumsum_Rz_forward,style_f)
+
+                    #translations
+                    sheet.write(i+2,4,Translation_vector_from_transformation_matrix(jo)[0],style_f)
+                    cumsum_Tx_forward += Translation_vector_from_transformation_matrix(jo)[0]
+                    sheet.write(i+2,10,cumsum_Tx_forward,style_f)
+
+                    sheet.write(i+2,5,Translation_vector_from_transformation_matrix(jo)[1],style_f)
+                    cumsum_Ty_forward += Translation_vector_from_transformation_matrix(jo)[1]
+                    sheet.write(i+2,11,cumsum_Ty_forward,style_f)
+
+                    sheet.write(i+2,6,Translation_vector_from_transformation_matrix(jo)[2],style_f)
+                    cumsum_Tz_forward += Translation_vector_from_transformation_matrix(jo)[2]
+                    sheet.write(i+2,12,cumsum_Tz_forward,style_f)
+
+
+        book.save(s_path)
+'''
