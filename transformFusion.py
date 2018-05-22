@@ -82,6 +82,21 @@ def get_header_from_nifti_file(filename):
 
     return nii.header
 
+'''
+Define the sigmoid function,  which smooths the  slope of the  weight map near the wire.
+Parameters
+----------
+x : N dimensional array
+Returns
+-------
+output : array
+  N_dimensional array containing sigmoid function result
+
+'''
+
+def sigmoid(x):
+  return 1 / (1 + np.exp(np.negative(x)))
+
 
 """
 compute the  associated weighting function to a binary mask (a region in the reference image)
@@ -91,14 +106,14 @@ component : array of data (binary mask)
 Returns
 -------
 output : array
-  N_dimensional array containing the weighting function value for each voxel according to the entered mask
+  N_dimensional array containing the weighting function value for each voxel according to the entered mask, convolved with a Gaussian kernel
+  with a standard deviation set to 2 voxels inorder to take into account the partial volume effect due to anisotropy of the image resolution
 """
 
 def component_weighting_function(data):
 
     np.subtract(np.max(data), data, data)
-
-    return(1/(1+0.5*ndimage.distance_transform_edt(data)))
+    return 1/(1+0.5*ndimage.distance_transform_edt(data)**2)
 
 
 """

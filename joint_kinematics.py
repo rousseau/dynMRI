@@ -186,9 +186,9 @@ def warp_point_using_flirt_transform(point,input_header, reference_header, trans
 	return np.absolute(np.delete(p, 3, 0))
 
 
-##Given the  XYZ orthogonal coordinate system (image coordinate system), find a transformation, M, that maps an anatomical orthogonal coordinate system UVW to XYZ
+##Given the  XYZ orthogonal coordinate system (image coordinate system), find a transformation, M, that maps XYZ  to an anatomical orthogonal coordinate system UVW
 
-## Compute the change of basis matrix to go from one locally defined bone coordinate system to image coordinate system
+## Compute the change of basis matrix to go from image coordinate system to one locally defined bone coordinate system
 
 def Image_to_bone_coordinate_system(image,U,V,W,bone_origin=None):
 
@@ -197,13 +197,13 @@ def Image_to_bone_coordinate_system(image,U,V,W,bone_origin=None):
     M = np.identity(4)
     # Rotation bloc
     M[0][0] = U[0]
-    M[0][1] = U[1]
-    M[0][2] = U[2]
-    M[1][0] = V[0]
+    M[1][0] = U[1]
+    M[2][0] = U[2]
+    M[0][1] = V[0]
     M[1][1] = V[1]
-    M[1][2] = V[2]
-    M[2][0] = W[0]
-    M[2][1] = W[1]
+    M[2][1] = V[2]
+    M[0][2] = W[0]
+    M[1][2] = W[1]
     M[2][2] = W[2]
 
     # Translation bloc: here, origin coordinates are expressed in mm
@@ -302,9 +302,9 @@ if __name__ == '__main__':
 
     '''####### Define the calcaneal coordinate system ##################'''
 
-    ref_matrix_calcaneus = args.ref_path+'propagation/output_path_component0/final_results/direct_static_on_dyn000'+str(args.reference-1)+'_component_0.mat'
-    ref_matrix_talus = args.ref_path+'propagation/output_path_component1/final_results/direct_static_on_dyn000'+str(args.reference-1)+'_component_1.mat'
-    ref_matrix_tibia = args.ref_path+'propagation/output_path_component2/final_results/direct_static_on_dyn000'+str(args.reference-1)+'_component_2.mat'
+    ref_matrix_calcaneus = args.ref_path+'/propagation/output_path_component0/final_results/direct_static_on_dyn000'+str(args.reference-1)+'_component_0.mat'
+    ref_matrix_talus = args.ref_path+'/propagation/output_path_component1/final_results/direct_static_on_dyn000'+str(args.reference-1)+'_component_1.mat'
+    ref_matrix_tibia = args.ref_path+'/propagation/output_path_component2/final_results/direct_static_on_dyn000'+str(args.reference-1)+'_component_2.mat'
 
     #the calcaneal x-axis(cx) was defined as the unit vector connecting the most anterior-inferior and the posterior-inferior calcaneal point.
 
@@ -426,7 +426,6 @@ if __name__ == '__main__':
 
     ay = np.cross(az, ax,axis=0)
     ay/= LA.norm(ay)
-
 
     '''####### Define the tibial coordinate system ##################
     >>> Anatomically based coordinate system:
@@ -612,7 +611,7 @@ if __name__ == '__main__':
 
             for i in range(0, len(dynamicSet)-1):
                 prefix = dynamicSet[i].split('/')[-1].split('.')[0]
-                joint = Express_transformation_matrix_in_bone_coordinate_system(Text_file_to_matrix(image_matrixSet[i]),change_of_basis_matrix[c])
+                joint = Express_transformation_matrix_in_bone_coordinate_system(inv(Text_file_to_matrix(image_matrixSet[i])),change_of_basis_matrix[c])
                 save_path = new_folder+'/joint_kinematics'+prefix+'.mat'
                 Matrix_to_text_file(joint, save_path)
 
