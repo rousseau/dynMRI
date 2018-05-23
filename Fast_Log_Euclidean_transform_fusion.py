@@ -28,7 +28,6 @@
   knowledge of the CeCILL-B license and that you accept its terms.
 """
 
-
 from scipy import ndimage
 import nibabel as nib
 import numpy as np
@@ -65,9 +64,8 @@ def nifti_to_array(filename):
 def nifti_image_shape(filename):
 
     nii = nib.load(filename)
-    #nii.get_data_dtype() == np.dtype(np.float32)
+    nii.get_data_dtype() == np.dtype(np.float32)
     data = nii.get_data()
-
 
     return (data.shape)
 
@@ -91,6 +89,7 @@ output : array
 '''
 
 def sigmoid(x):
+
   return 1 / (1 + np.exp(np.negative(x)))
 
 """
@@ -108,7 +107,8 @@ output : array
 def component_weighting_function(data):
 
     np.subtract(np.max(data), data, data)
-    return 1/(1+0.5*ndimage.distance_transform_edt(data)**2)
+
+    return 1/(1+0.5*ndimage.distance_transform_edt(data)**3)
     #return gaussian_filter(1/(1+ndimage.distance_transform_edt(data)), sigma=2)
 
 
@@ -157,52 +157,44 @@ if __name__ == '__main__':
     del Normalized_weighting_function
 
 ###### set of computed normalized weighting functions #######
-
     Normalized_weighting_functionSet = glob.glob(normalized_weighting_function_path+'*.nii.gz')
     Normalized_weighting_functionSet.sort()
 
-##########################Test#####################################
+#### identify foreground and background voxels ###########
+    #fg= np.argwhere(HR_data > 0) #Foreground voxels
+    #bg= np.argwhere(HR_data <= 0) #Background voxels
 
 ##### create an array of matrices: final_log_transform(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
     final_transform = np.zeros((dim0, dim1, dim2, 4, 4))
-
-    #fg= np.argwhere(HR_data > 0) #Foreground voxels
-    #bg= np.argwhere(HR_data == 0) #Background voxels
-
     for i in range(0, len(args.transform)):
-
         np.subtract(final_transform, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), final_transform)
-
     print("log part successsfully computed")
-
 
 ##### compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   ############
 ##############################  final_exp_transform(x,y,z)= exp(-∑i  w_norm(i)[x,y,z]*log(T(i))) #################################
 
-    d, Y = np.linalg.eig(final_transform)  #returns an array of vectors with the eigenvalues (d[dim0,dim1,dim2,4]) and an array of matrices (Y[dim0,dim1,dim2,(4,4)]) with
+    d, Y = np.linalg.eig(final_transform)  #returns an array of vectors with the eigenvalues (d[dim0,dim1,dim2,4]) and an array of matrices (Y[dim0,dim1,dim2,(4,4)]) with corresponding eigenvectors
     print("eigenvalues and eigen vectors were successsfully computed")
 
     Yinv = np.linalg.inv(Y)
-
     print("Yinv is successfully computed")
 
     d = np.exp(d)  # exp(final_transform) = Y*exp(d)*inv(Y).  exp (d) is much more easy to calculate than exp(final_transform)
     #since, for a diagonal matrix, we just need to exponentiate the diagonal elements.
+    print("exponentiate the diagonal elements (complex eigenvalues): done")
 
-    print("exponentiate the diagonal elements (eigenvalues): done")
-
-    final_transform[:,:,:,3,3]= 1
+    final_transform[:,:,:,3,3]= 1 #case of homogeneous coordinates
     #first row
     final_transform[:,:,:,0,0]= Y[:,:,:,0,0]*Yinv[:,:,:,0,0]*d[:,:,:,0] + Y[:,:,:,0,1]*Yinv[:,:,:,1,0]*d[:,:,:,1] + Y[:,:,:,0,2]*Yinv[:,:,:,2,0]*d[:,:,:,2] + Y[:,:,:,0,3]*Yinv[:,:,:,3,0]*d[:,:,:,3]
     final_transform[:,:,:,0,1]= Y[:,:,:,0,0]*Yinv[:,:,:,0,1]*d[:,:,:,0] + Y[:,:,:,0,1]*Yinv[:,:,:,1,1]*d[:,:,:,1] + Y[:,:,:,0,2]*Yinv[:,:,:,2,1]*d[:,:,:,2] + Y[:,:,:,0,3]*Yinv[:,:,:,3,1]*d[:,:,:,3]
     final_transform[:,:,:,0,2]= Y[:,:,:,0,0]*Yinv[:,:,:,0,2]*d[:,:,:,0] + Y[:,:,:,0,1]*Yinv[:,:,:,1,2]*d[:,:,:,1] + Y[:,:,:,0,2]*Yinv[:,:,:,2,2]*d[:,:,:,2] + Y[:,:,:,0,3]*Yinv[:,:,:,3,2]*d[:,:,:,3]
     final_transform[:,:,:,0,3]= Y[:,:,:,0,0]*Yinv[:,:,:,0,3]*d[:,:,:,0] + Y[:,:,:,0,1]*Yinv[:,:,:,1,3]*d[:,:,:,1] + Y[:,:,:,0,2]*Yinv[:,:,:,2,3]*d[:,:,:,2] + Y[:,:,:,0,3]*Yinv[:,:,:,3,3]*d[:,:,:,3]
-
+    #second row
     final_transform[:,:,:,1,0]= Y[:,:,:,1,0]*Yinv[:,:,:,0,0]*d[:,:,:,0] + Y[:,:,:,1,1]*Yinv[:,:,:,1,0]*d[:,:,:,1] + Y[:,:,:,1,2]*Yinv[:,:,:,2,0]*d[:,:,:,2] + Y[:,:,:,1,3]*Yinv[:,:,:,3,0]*d[:,:,:,3]
     final_transform[:,:,:,1,1]= Y[:,:,:,1,0]*Yinv[:,:,:,0,1]*d[:,:,:,0] + Y[:,:,:,1,1]*Yinv[:,:,:,1,1]*d[:,:,:,1] + Y[:,:,:,1,2]*Yinv[:,:,:,2,1]*d[:,:,:,2] + Y[:,:,:,1,3]*Yinv[:,:,:,3,1]*d[:,:,:,3]
     final_transform[:,:,:,1,2]= Y[:,:,:,1,0]*Yinv[:,:,:,0,2]*d[:,:,:,0] + Y[:,:,:,1,1]*Yinv[:,:,:,1,2]*d[:,:,:,1] + Y[:,:,:,1,2]*Yinv[:,:,:,2,2]*d[:,:,:,2] + Y[:,:,:,1,3]*Yinv[:,:,:,3,2]*d[:,:,:,3]
     final_transform[:,:,:,1,3]= Y[:,:,:,1,0]*Yinv[:,:,:,0,3]*d[:,:,:,0] + Y[:,:,:,1,1]*Yinv[:,:,:,1,3]*d[:,:,:,1] + Y[:,:,:,1,2]*Yinv[:,:,:,2,3]*d[:,:,:,2] + Y[:,:,:,1,3]*Yinv[:,:,:,3,3]*d[:,:,:,3]
-
+    #third row
     final_transform[:,:,:,2,0]= Y[:,:,:,2,0]*Yinv[:,:,:,0,0]*d[:,:,:,0] + Y[:,:,:,2,1]*Yinv[:,:,:,1,0]*d[:,:,:,1] + Y[:,:,:,2,2]*Yinv[:,:,:,2,0]*d[:,:,:,2] + Y[:,:,:,2,3]*Yinv[:,:,:,3,0]*d[:,:,:,3]
     final_transform[:,:,:,2,1]= Y[:,:,:,2,0]*Yinv[:,:,:,0,1]*d[:,:,:,0] + Y[:,:,:,2,1]*Yinv[:,:,:,1,1]*d[:,:,:,1] + Y[:,:,:,2,2]*Yinv[:,:,:,2,1]*d[:,:,:,2] + Y[:,:,:,2,3]*Yinv[:,:,:,3,1]*d[:,:,:,3]
     final_transform[:,:,:,2,2]= Y[:,:,:,2,0]*Yinv[:,:,:,0,2]*d[:,:,:,0] + Y[:,:,:,2,1]*Yinv[:,:,:,1,2]*d[:,:,:,1] + Y[:,:,:,2,2]*Yinv[:,:,:,2,2]*d[:,:,:,2] + Y[:,:,:,2,3]*Yinv[:,:,:,3,2]*d[:,:,:,3]
@@ -215,53 +207,46 @@ if __name__ == '__main__':
 
     print("final transform exponential computed")
 
-
 ######## compute the warped image #################################
 
     input_header = get_header_from_nifti_file(args.floating)
     reference_header = get_header_from_nifti_file(args.floating)
 
-## Compute coordinates in the input image
-
+# Compute coordinates in the input image
     coords = np.zeros((3,dim0, dim1, dim2), dtype='float32')
     coords[0,...] = np.arange(dim0)[:,np.newaxis,np.newaxis]
     coords[1,...] = np.arange(dim1)[np.newaxis,:,np.newaxis]
     coords[2,...] = np.arange(dim2)[np.newaxis,np.newaxis,:]
 
-# flip [x,y,z] if necessary (based on the sign of the sform or qform determinant)
-
+# Flip [x,y,z] if necessary (based on the sign of the sform or qform determinant)
     if np.sign(det(input_header.get_qform())) == 1:
         coords[0,...] = input_header.get_data_shape()[0]-1-coords[0,...]
         coords[1,...] = input_header.get_data_shape()[1]-1-coords[1,...]
         coords[2,...] = input_header.get_data_shape()[2]-1-coords[2,...]
 
-#scale the values by multiplying by the corresponding voxel sizes (in mm)
-
+# Scale the values by multiplying by the corresponding voxel sizes (in mm)
     np.multiply(input_header.get_zooms()[0], coords[0,...], coords[0,...])
     np.multiply(input_header.get_zooms()[1], coords[1,...], coords[1,...])
     np.multiply(input_header.get_zooms()[2], coords[2,...], coords[2,...])
 
 # Apply the FLIRT matrix for each voxel to map to the reference space
-
+# Compute velocity vector fields
     coords_ref = np.zeros((3,dim0, dim1, dim2),dtype='float32')
     coords_ref[0,...] = final_transform[:,:,:,0,0]*coords[0,...] + final_transform[:,:,:,0,1]*coords[1,...] + final_transform[:,:,:,0,2]* coords[2,...] +  final_transform[:,:,:,0,3]
     coords_ref[1,...] = final_transform[:,:,:,1,0]*coords[0,...] + final_transform[:,:,:,1,1]*coords[1,...] + final_transform[:,:,:,1,2]* coords[2,...] +  final_transform[:,:,:,1,3]
     coords_ref[2,...] = final_transform[:,:,:,2,0]*coords[0,...] + final_transform[:,:,:,2,1]*coords[1,...] + final_transform[:,:,:,2,2]* coords[2,...] +  final_transform[:,:,:,2,3]
 
-# removing final transforms from the computer RAM after the exponentiation step
-
+# Remove final transforms from the computer RAM after the exponentiation step
     del final_transform
 
-#divide by the corresponding voxel sizes (in mm, of the reference image this time)
-
+# Divide by the corresponding voxel sizes (in mm, of the reference image this time)
     np.divide(coords_ref[0,...], reference_header.get_zooms()[0], coords[0,...])
     np.divide(coords_ref[1,...], reference_header.get_zooms()[1], coords[1,...])
     np.divide(coords_ref[2,...], reference_header.get_zooms()[2], coords[2,...])
 
     del coords_ref
 
-#flip the [x,y,z] coordinates (based on the sign of the sform or qform determinant, of the reference image this time)
-
+# Flip the [x,y,z] coordinates (based on the sign of the sform or qform determinant, of the reference image this time)
     if np.sign(det(reference_header.get_qform())) == 1:
         coords[0,...] = reference_header.get_data_shape()[0]-1-coords[0,...]
         coords[1,...] = reference_header.get_data_shape()[1]-1-coords[1,...]
@@ -269,8 +254,7 @@ if __name__ == '__main__':
 
     print("warped image is successfully computed")
 
-#create index for the reference space
-
+# Create index for the reference space
     i = np.arange(0,dim0)
     j = np.arange(0,dim1)
     k = np.arange(0,dim2)
@@ -280,8 +264,7 @@ if __name__ == '__main__':
     jv = np.reshape(jv,(-1))
     kv = np.reshape(kv,(-1))
 
-#reshape the warped coordinates
-
+# Reshape the warped coordinates
     pointset = np.zeros((3,iv.shape[0]))
     pointset[0,:] = iv
     pointset[1,:] = jv
@@ -290,17 +273,14 @@ if __name__ == '__main__':
     coords = np.reshape(coords, pointset.shape)
     val = np.zeros(iv.shape)
 
-#### Interpolation:  mapping output data into the reference image space####
-
+#### Interpolation:  mapping output data into the reference image space by first order nearest neighbor interpolation####
     map_coordinates(nifti_to_array(args.floating),[coords[0,:],coords[1,:],coords[2,:]],output=val,order=1, mode='nearest')
 
     del coords
-
     output_data = np.reshape(val,nifti_image_shape(args.floating))
 
 
 #######writing and saving warped image ###
-
     i = nib.Nifti1Image(output_data, nii.affine)
     save_path = args.output + args.outputimage
     nib.save(i, save_path)
