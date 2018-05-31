@@ -110,7 +110,6 @@ def component_weighting_function(data):
     return 1/(1+0.5*ndimage.distance_transform_edt(data)**3)
     #return gaussian_filter(1/(1+ndimage.distance_transform_edt(data)), sigma=2)
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
@@ -163,48 +162,50 @@ if __name__ == '__main__':
     #fg= np.argwhere(HR_data > 0) #Foreground voxels
     #bg= np.argwhere(HR_data <= 0) #Background voxels
 
-##### create an array of matrices: final_log_transform(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
-    final_transform = np.zeros((dim0, dim1, dim2, 4, 4))
+##### create an array of matrices: T(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
+    T = np.zeros((dim0, dim1, dim2, 4, 4))
+
     for i in range(0, len(args.transform)):
-        np.subtract(final_transform, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), final_transform)
-    print("log part successsfully computed")
+        np.subtract(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), T)
+    print("principal matrix logarithm of each bone transformation was successfully computed")
 
-##### compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   ############
-##############################  final_exp_transform(x,y,z)= exp(-∑i  w_norm(i)[x,y,z]*log(T(i))) #################################
+######## compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   ############
+##############################  final_exp_transform(T(x,y,z))= exp(-∑i  w_norm(i)[x,y,z]*log(T(i))) #################################
 
-    d, Y = np.linalg.eig(final_transform)  #returns an array of vectors with the eigenvalues (d[dim0,dim1,dim2,4]) and an array of matrices (Y[dim0,dim1,dim2,(4,4)]) with corresponding eigenvectors
-    print("eigenvalues and eigen vectors were successsfully computed")
+    d, Y = np.linalg.eig(T)  #returns an array of vectors with the eigenvalues (d[dim0,dim1,dim2,4]) and an array of matrices (Y[dim0,dim1,dim2,(4,4)]) with corresponding eigenvectors
+    print("eigenvalues and eigen vectors were successfully computed")
 
     Yi = np.linalg.inv(Y)
-    print("Yinv is successfully computed")
+    print("eigenvectors were successfully inverted")
 
-    d = np.exp(d)  # exp(final_transform) = Y*exp(d)*inv(Y).  exp (d) is much more easy to calculate than exp(final_transform)
+    d = np.exp(d)  # exp(T) = Y*exp(d)*inv(Y).  exp (d) is much more easy to calculate than exp(T)
     #since, for a diagonal matrix, we just need to exponentiate the diagonal elements.
     print("exponentiate the diagonal elements (complex eigenvalues): done")
 
-    final_transform[:,:,:,3,3]= 1 #case of homogeneous coordinates
     #first row
-    final_transform[:,:,:,0,0]= Y[:,:,:,0,0]*Yi[:,:,:,0,0]*d[:,:,:,0] + Y[:,:,:,0,1]*Yi[:,:,:,1,0]*d[:,:,:,1] + Y[:,:,:,0,2]*Yi[:,:,:,2,0]*d[:,:,:,2]
-    final_transform[:,:,:,0,1]= Y[:,:,:,0,0]*Yi[:,:,:,0,1]*d[:,:,:,0] + Y[:,:,:,0,1]*Yi[:,:,:,1,1]*d[:,:,:,1] + Y[:,:,:,0,2]*Yi[:,:,:,2,1]*d[:,:,:,2]
-    final_transform[:,:,:,0,2]= Y[:,:,:,0,0]*Yi[:,:,:,0,2]*d[:,:,:,0] + Y[:,:,:,0,1]*Yi[:,:,:,1,2]*d[:,:,:,1] + Y[:,:,:,0,2]*Yi[:,:,:,2,2]*d[:,:,:,2]
-    final_transform[:,:,:,0,3]= Y[:,:,:,0,0]*Yi[:,:,:,0,3]*d[:,:,:,0] + Y[:,:,:,0,1]*Yi[:,:,:,1,3]*d[:,:,:,1] + Y[:,:,:,0,2]*Yi[:,:,:,2,3]*d[:,:,:,2] + Y[:,:,:,0,3]*Yi[:,:,:,3,3]
+    T[...,0,0] = Y[...,0,0]*Yi[...,0,0]*d[...,0] + Y[...,0,1]*Yi[...,1,0]*d[...,1] + Y[...,0,2]*Yi[...,2,0]*d[...,2]
+    T[...,0,1] = Y[...,0,0]*Yi[...,0,1]*d[...,0] + Y[...,0,1]*Yi[...,1,1]*d[...,1] + Y[...,0,2]*Yi[...,2,1]*d[...,2]
+    T[...,0,2] = Y[...,0,0]*Yi[...,0,2]*d[...,0] + Y[...,0,1]*Yi[...,1,2]*d[...,1] + Y[...,0,2]*Yi[...,2,2]*d[...,2]
+    T[...,0,3] = Y[...,0,0]*Yi[...,0,3]*d[...,0] + Y[...,0,1]*Yi[...,1,3]*d[...,1] + Y[...,0,2]*Yi[...,2,3]*d[...,2] + Y[...,0,3]*Yi[...,3,3]
     #second row
-    final_transform[:,:,:,1,0]= Y[:,:,:,1,0]*Yi[:,:,:,0,0]*d[:,:,:,0] + Y[:,:,:,1,1]*Yi[:,:,:,1,0]*d[:,:,:,1] + Y[:,:,:,1,2]*Yi[:,:,:,2,0]*d[:,:,:,2]
-    final_transform[:,:,:,1,1]= Y[:,:,:,1,0]*Yi[:,:,:,0,1]*d[:,:,:,0] + Y[:,:,:,1,1]*Yi[:,:,:,1,1]*d[:,:,:,1] + Y[:,:,:,1,2]*Yi[:,:,:,2,1]*d[:,:,:,2]
-    final_transform[:,:,:,1,2]= Y[:,:,:,1,0]*Yi[:,:,:,0,2]*d[:,:,:,0] + Y[:,:,:,1,1]*Yi[:,:,:,1,2]*d[:,:,:,1] + Y[:,:,:,1,2]*Yi[:,:,:,2,2]*d[:,:,:,2]
-    final_transform[:,:,:,1,3]= Y[:,:,:,1,0]*Yi[:,:,:,0,3]*d[:,:,:,0] + Y[:,:,:,1,1]*Yi[:,:,:,1,3]*d[:,:,:,1] + Y[:,:,:,1,2]*Yi[:,:,:,2,3]*d[:,:,:,2] + Y[:,:,:,1,3]*Yi[:,:,:,3,3]
+    T[...,1,0] = Y[...,1,0]*Yi[...,0,0]*d[...,0] + Y[...,1,1]*Yi[...,1,0]*d[...,1] + Y[...,1,2]*Yi[...,2,0]*d[...,2]
+    T[...,1,1] = Y[...,1,0]*Yi[...,0,1]*d[...,0] + Y[...,1,1]*Yi[...,1,1]*d[...,1] + Y[...,1,2]*Yi[...,2,1]*d[...,2]
+    T[...,1,2] = Y[...,1,0]*Yi[...,0,2]*d[...,0] + Y[...,1,1]*Yi[...,1,2]*d[...,1] + Y[...,1,2]*Yi[...,2,2]*d[...,2]
+    T[...,1,3] = Y[...,1,0]*Yi[...,0,3]*d[...,0] + Y[...,1,1]*Yi[...,1,3]*d[...,1] + Y[...,1,2]*Yi[...,2,3]*d[...,2] + Y[...,1,3]*Yi[...,3,3]
     #third row
-    final_transform[:,:,:,2,0]= Y[:,:,:,2,0]*Yi[:,:,:,0,0]*d[:,:,:,0] + Y[:,:,:,2,1]*Yi[:,:,:,1,0]*d[:,:,:,1] + Y[:,:,:,2,2]*Yi[:,:,:,2,0]*d[:,:,:,2]
-    final_transform[:,:,:,2,1]= Y[:,:,:,2,0]*Yi[:,:,:,0,1]*d[:,:,:,0] + Y[:,:,:,2,1]*Yi[:,:,:,1,1]*d[:,:,:,1] + Y[:,:,:,2,2]*Yi[:,:,:,2,1]*d[:,:,:,2]
-    final_transform[:,:,:,2,2]= Y[:,:,:,2,0]*Yi[:,:,:,0,2]*d[:,:,:,0] + Y[:,:,:,2,1]*Yi[:,:,:,1,2]*d[:,:,:,1] + Y[:,:,:,2,2]*Yi[:,:,:,2,2]*d[:,:,:,2]
-    final_transform[:,:,:,2,3]= Y[:,:,:,2,0]*Yi[:,:,:,0,3]*d[:,:,:,0] + Y[:,:,:,2,1]*Yi[:,:,:,1,3]*d[:,:,:,1] + Y[:,:,:,2,2]*Yi[:,:,:,2,3]*d[:,:,:,2] + Y[:,:,:,2,3]*Yi[:,:,:,3,3]
+    T[...,2,0] = Y[...,2,0]*Yi[...,0,0]*d[...,0] + Y[...,2,1]*Yi[...,1,0]*d[...,1] + Y[...,2,2]*Yi[...,2,0]*d[...,2]
+    T[...,2,1] = Y[...,2,0]*Yi[...,0,1]*d[...,0] + Y[...,2,1]*Yi[...,1,1]*d[...,1] + Y[...,2,2]*Yi[...,2,1]*d[...,2]
+    T[...,2,2] = Y[...,2,0]*Yi[...,0,2]*d[...,0] + Y[...,2,1]*Yi[...,1,2]*d[...,1] + Y[...,2,2]*Yi[...,2,2]*d[...,2]
+    T[...,2,3] = Y[...,2,0]*Yi[...,0,3]*d[...,0] + Y[...,2,1]*Yi[...,1,3]*d[...,1] + Y[...,2,2]*Yi[...,2,3]*d[...,2] + Y[...,2,3]*Yi[...,3,3]
+    #fourth row
+    #T[...,3,3]= 1 #in homogeneous coordinates
 
-    ### free memory
+    ### Remove Y, Yi, and d from the computer RAM
     del Y
     del Yi
     del d
 
-    print("final transform exponential computed")
+    print("final exponential mapping is successfully computed")
 
 ######## compute the warped image #################################
 
@@ -231,12 +232,12 @@ if __name__ == '__main__':
 # Apply the FLIRT matrix for each voxel to map to the reference space
 # Compute velocity vector fields
     coords_ref = np.zeros((3,dim0, dim1, dim2),dtype='float32')
-    coords_ref[0,...] = final_transform[:,:,:,0,0]*coords[0,...] + final_transform[:,:,:,0,1]*coords[1,...] + final_transform[:,:,:,0,2]* coords[2,...] +  final_transform[:,:,:,0,3]
-    coords_ref[1,...] = final_transform[:,:,:,1,0]*coords[0,...] + final_transform[:,:,:,1,1]*coords[1,...] + final_transform[:,:,:,1,2]* coords[2,...] +  final_transform[:,:,:,1,3]
-    coords_ref[2,...] = final_transform[:,:,:,2,0]*coords[0,...] + final_transform[:,:,:,2,1]*coords[1,...] + final_transform[:,:,:,2,2]* coords[2,...] +  final_transform[:,:,:,2,3]
+    coords_ref[0,...] = T[...,0,0]*coords[0,...] + T[...,0,1]*coords[1,...] + T[...,0,2]* coords[2,...] +  T[...,0,3]
+    coords_ref[1,...] = T[...,1,0]*coords[0,...] + T[...,1,1]*coords[1,...] + T[...,1,2]* coords[2,...] +  T[...,1,3]
+    coords_ref[2,...] = T[...,2,0]*coords[0,...] + T[...,2,1]*coords[1,...] + T[...,2,2]* coords[2,...] +  T[...,2,3]
 
-# Remove final transforms from the computer RAM after the exponentiation step
-    del final_transform
+# Remove final transforms from the computer RAM after computing the vector velocity field
+    del T
 
 # Divide by the corresponding voxel sizes (in mm, of the reference image this time)
     np.divide(coords_ref[0,...], reference_header.get_zooms()[0], coords[0,...])
