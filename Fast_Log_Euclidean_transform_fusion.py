@@ -317,4 +317,4 @@ if __name__ == '__main__':
 #######writing and saving warped image ###
     i = nib.Nifti1Image(output_data, nii.affine)
     save_path = args.output + args.outputimage
-nib.save(i, save_path)
+    nib.save(i, save_path)
