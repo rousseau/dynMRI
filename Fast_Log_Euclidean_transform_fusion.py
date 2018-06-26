@@ -3,7 +3,6 @@
 """
   © IMT Atlantique - LATIM-INSERM UMR 1101
   Author(s): Karim Makki (karim.makki@imt-atlantique.fr)
-
   This software is governed by the CeCILL-B license under French law and
   abiding by the rules of distribution of free software.  You can  use,
   modify and/ or redistribute the software under the terms of the CeCILL-B
@@ -40,7 +39,7 @@ from numpy import newaxis
 import itertools
 from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage.interpolation import map_coordinates
-#from scipy.ndimage.morphology import binary_erosion
+from scipy.ndimage.morphology import binary_erosion
 import multiprocessing
 
 from numpy import *
@@ -75,7 +74,7 @@ def get_header_from_nifti_file(filename):
 
     return nii.header
 
-'''
+"""
 Define the sigmoid function,  which smooths the  slope of the  weight map near the wire.
 Parameters
 ----------
@@ -84,12 +83,19 @@ Returns
 -------
 output : array
   N_dimensional array containing sigmoid function result
-
-'''
+"""
 
 def sigmoid(x):
 
   return 1 / (1 + np.exp(np.negative(x)))
+
+
+
+def distance_to_mask(mask):
+
+    d = np.subtract(np.max(mask), mask)
+
+    return ndimage.distance_transform_edt(d)
 
 """
 compute the  associated weighting function to a binary mask (a region in the reference image)
@@ -105,12 +111,29 @@ output : array
 
 def component_weighting_function(data):
 
-    np.subtract(np.max(data), data, data)
+    return 1/(1+0.5*distance_to_mask(data)**2)
 
-    return 1/(1+0.5*ndimage.distance_transform_edt(data)**3)
     #return gaussian_filter(1/(1+ndimage.distance_transform_edt(data)), sigma=2)
 
+"""
+The scipy.linalg.logm method in the scipy library of Python2.7 calculates matrix exponentials via the Padé approximation.
+However, using eigendecomposition to calculate the logarithm of a 4*4 matrix is more accurate and is faster by approximately a factor of 2.
+"""
+
+def matrix_logarithm(matrix):
+
+    d, Y = np.linalg.eig(matrix)
+    Yinv = np.linalg.inv(Y)
+    D = np.diag(np.log(d))
+    Y = np.asmatrix(Y)
+    D = np.asmatrix(D)
+    Yinv = np.asmatrix(Yinv)
+
+    return np.array(np.dot(Y,np.dot(D,Yinv))).reshape(4,4)
+
+
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-in', '--floating', help='floating input image', type=str, required = True)
@@ -129,44 +152,56 @@ if __name__ == '__main__':
     if not os.path.exists(normalized_weighting_function_path):
         os.makedirs(normalized_weighting_function_path)
 
-
 ######################compute the normalized weighting function of each component #########################
     nii = nib.load(args.component[0])
     data_shape = nifti_image_shape(args.component[0])
     dim0, dim1, dim2 = nifti_image_shape(args.floating)
 
-    sum_of_weighting_functions = np.zeros((data_shape))
+######################## automatically identify border voxels #############################################
+
+    borders = np.ones((dim0, dim1, dim2))
+    border_width = 20
+    borders[border_width:dim0-border_width,border_width:dim1-border_width,:] = 0
+
+######################## Compute and save normalized weighting functions ##################################
+
+    sum_of_weighting_functions = component_weighting_function(borders)
+
     Normalized_weighting_function = np.zeros((data_shape))
 
-    for i in range(0, len(args.component)):
+    for i in range (len(args.component)):
 
-        sum_of_weighting_functions += component_weighting_function(nifti_to_array(args.component[i]))
+        sum_of_weighting_functions += component_weighting_function(nifti_to_array(args.component[i]) )
 
-    for i in range(0, len(args.component)):
+
+    np.divide(component_weighting_function(borders), sum_of_weighting_functions, Normalized_weighting_function)
+    k = nib.Nifti1Image(Normalized_weighting_function, nii.affine)
+    save_path = normalized_weighting_function_path+'Normalized_weighting_function_component0.nii.gz'
+    nib.save(k, save_path)
+
+    for i in range (len(args.component)):
 
         np.divide(component_weighting_function(nifti_to_array(args.component[i])), sum_of_weighting_functions, Normalized_weighting_function)
 
         k = nib.Nifti1Image(Normalized_weighting_function, nii.affine)
-        save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i)+'.nii.gz'
+        save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i+1)+'.nii.gz'
         nib.save(k, save_path)
 
 ###############################################################################################################
     del sum_of_weighting_functions
     del Normalized_weighting_function
+    del borders
 
 ###### set of computed normalized weighting functions #######
     Normalized_weighting_functionSet = glob.glob(normalized_weighting_function_path+'*.nii.gz')
     Normalized_weighting_functionSet.sort()
 
-#### identify foreground and background voxels ###########
-    #fg= np.argwhere(HR_data > 0) #Foreground voxels
-    #bg= np.argwhere(HR_data <= 0) #Background voxels
-
 ##### create an array of matrices: T(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
     T = np.zeros((dim0, dim1, dim2, 4, 4))
 
-    for i in range(0, len(args.transform)):
-        np.subtract(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), T)
+    for i in range (len(args.transform)):
+        #np.subtract(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i+1])[:,:,:,newaxis,newaxis]), T)
+        np.subtract(T, np.multiply(matrix_logarithm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i+1])[:,:,:,newaxis,newaxis]), T)
     print("principal matrix logarithm of each bone transformation was successfully computed")
 
 ######## compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   ############
@@ -209,25 +244,25 @@ if __name__ == '__main__':
 
 ######## compute the warped image #################################
 
-    input_header = get_header_from_nifti_file(args.floating)
-    reference_header = get_header_from_nifti_file(args.floating)
+    in_header = get_header_from_nifti_file(args.floating)
+    ref_header = get_header_from_nifti_file(args.floating)
 
 # Compute coordinates in the input image
     coords = np.zeros((3,dim0, dim1, dim2), dtype='float32')
-    coords[0,...] = np.arange(dim0)[:,np.newaxis,np.newaxis]
-    coords[1,...] = np.arange(dim1)[np.newaxis,:,np.newaxis]
-    coords[2,...] = np.arange(dim2)[np.newaxis,np.newaxis,:]
+    coords[0,...] = np.arange(dim0)[:,newaxis,newaxis]
+    coords[1,...] = np.arange(dim1)[newaxis,:,newaxis]
+    coords[2,...] = np.arange(dim2)[newaxis,newaxis,:]
 
 # Flip [x,y,z] if necessary (based on the sign of the sform or qform determinant)
-    if np.sign(det(input_header.get_qform())) == 1:
-        coords[0,...] = input_header.get_data_shape()[0]-1-coords[0,...]
-        coords[1,...] = input_header.get_data_shape()[1]-1-coords[1,...]
-        coords[2,...] = input_header.get_data_shape()[2]-1-coords[2,...]
+    if np.sign(det(in_header.get_qform())) == 1:
+        coords[0,...] = in_header.get_data_shape()[0]-1-coords[0,...]
+        coords[1,...] = in_header.get_data_shape()[1]-1-coords[1,...]
+        coords[2,...] = in_header.get_data_shape()[2]-1-coords[2,...]
 
 # Scale the values by multiplying by the corresponding voxel sizes (in mm)
-    np.multiply(input_header.get_zooms()[0], coords[0,...], coords[0,...])
-    np.multiply(input_header.get_zooms()[1], coords[1,...], coords[1,...])
-    np.multiply(input_header.get_zooms()[2], coords[2,...], coords[2,...])
+    np.multiply(in_header.get_zooms()[0], coords[0,...], coords[0,...])
+    np.multiply(in_header.get_zooms()[1], coords[1,...], coords[1,...])
+    np.multiply(in_header.get_zooms()[2], coords[2,...], coords[2,...])
 
 # Apply the FLIRT matrix for each voxel to map to the reference space
 # Compute velocity vector fields
@@ -240,17 +275,17 @@ if __name__ == '__main__':
     del T
 
 # Divide by the corresponding voxel sizes (in mm, of the reference image this time)
-    np.divide(coords_ref[0,...], reference_header.get_zooms()[0], coords[0,...])
-    np.divide(coords_ref[1,...], reference_header.get_zooms()[1], coords[1,...])
-    np.divide(coords_ref[2,...], reference_header.get_zooms()[2], coords[2,...])
+    np.divide(coords_ref[0,...], ref_header.get_zooms()[0], coords[0,...])
+    np.divide(coords_ref[1,...], ref_header.get_zooms()[1], coords[1,...])
+    np.divide(coords_ref[2,...], ref_header.get_zooms()[2], coords[2,...])
 
     del coords_ref
 
 # Flip the [x,y,z] coordinates (based on the sign of the sform or qform determinant, of the reference image this time)
-    if np.sign(det(reference_header.get_qform())) == 1:
-        coords[0,...] = reference_header.get_data_shape()[0]-1-coords[0,...]
-        coords[1,...] = reference_header.get_data_shape()[1]-1-coords[1,...]
-        coords[2,...] = reference_header.get_data_shape()[2]-1-coords[2,...]
+    if np.sign(det(ref_header.get_qform())) == 1:
+        coords[0,...] = ref_header.get_data_shape()[0]-1-coords[0,...]
+        coords[1,...] = ref_header.get_data_shape()[1]-1-coords[1,...]
+        coords[2,...] = ref_header.get_data_shape()[2]-1-coords[2,...]
 
     print("warped image is successfully computed")
 
@@ -279,8 +314,7 @@ if __name__ == '__main__':
     del coords
     output_data = np.reshape(val,nifti_image_shape(args.floating))
 
-
 #######writing and saving warped image ###
     i = nib.Nifti1Image(output_data, nii.affine)
     save_path = args.output + args.outputimage
-    nib.save(i, save_path)
+nib.save(i, save_path)

@@ -113,7 +113,7 @@ output : array
 def component_weighting_function(data):
 
     np.subtract(np.max(data), data, data)
-    return 1/(1+0.5*ndimage.distance_transform_edt(data)**2)
+    return 1/(1+0.5*ndimage.distance_transform_edt(data)**3)
 
 
 """
@@ -316,21 +316,21 @@ if __name__ == '__main__':
     x1, y1, z1 = zip(*input_coordinates)
     x2, y2, z2 = zip(*output_coordinates)
 
-    def_fieldx = tuple(np.subtract(x2, x1))
-    def_fieldy = tuple(np.subtract(y2, y1))
-    def_fieldz = tuple(np.subtract(z2, z1))
+    #def_fieldx = tuple(np.subtract(x2, x1))
+    #def_fieldy = tuple(np.subtract(y2, y1))
+    #def_fieldz = tuple(np.subtract(z2, z1))
 
 
-    def_fieldx = np.reshape(def_fieldx,nifti_image_shape(args.floating))
-    def_fieldy = np.reshape(def_fieldy,nifti_image_shape(args.floating))
-    def_fieldz = np.reshape(def_fieldz,nifti_image_shape(args.floating))
+    #def_fieldx = np.reshape(def_fieldx,nifti_image_shape(args.floating))
+    #def_fieldy = np.reshape(def_fieldy,nifti_image_shape(args.floating))
+    #def_fieldz = np.reshape(def_fieldz,nifti_image_shape(args.floating))
 
-    '''x2 = np.reshape(x2,nifti_image_shape(args.floating))
+    x2 = np.reshape(x2,nifti_image_shape(args.floating))
     y2 = np.reshape(y2,nifti_image_shape(args.floating))
-    z2 = np.reshape(z2,nifti_image_shape(args.floating))'''
+    z2 = np.reshape(z2,nifti_image_shape(args.floating))
 
 
-    def_field = np.concatenate((def_fieldx[...,np.newaxis],def_fieldy[...,np.newaxis], def_fieldz[...,np.newaxis]),axis=3) # 4 dimensional volume ... each image in the volume describes the deformation with respect to a specific direction: x, y or z
+    def_field = np.concatenate((x2[...,np.newaxis],y2[...,np.newaxis], z2[...,np.newaxis]),axis=3) # 4 dimensional volume ... each image in the volume describes the deformation with respect to a specific direction: x, y or z
     j = nib.Nifti1Image(def_field, nii.affine)
     save_path2 = args.output + args.deformation_field          #'4D_def_field.nii.gz'
     nib.save(j, save_path2)
