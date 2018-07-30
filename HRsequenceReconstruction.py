@@ -1,9 +1,9 @@
+
 # -*- coding: utf-8 -*-
 
 """
   © IMT Atlantique - LATIM-INSERM UMR 1101
   Author(s): Karim Makki (karim.makki@imt-atlantique.fr)
-
   This software is governed by the CeCILL-B license under French law and
   abiding by the rules of distribution of free software.  You can  use,
   modify and/ or redistribute the software under the terms of the CeCILL-B

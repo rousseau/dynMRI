@@ -113,7 +113,7 @@ output : array
 def component_weighting_function(data):
 
     np.subtract(np.max(data), data, data)
-    return 1/(1+0.5*ndimage.distance_transform_edt(data)**3)
+    return 1/(1+0.5*ndimage.distance_transform_edt(data)**2)
 
 
 """
@@ -188,9 +188,18 @@ if __name__ == '__main__':
     nii = nib.load(args.component[0])
     data_shape = nifti_image_shape(args.component[0])
     dim0, dim1, dim2 = nifti_image_shape(args.floating)
-    sum_of_weighting_functions = np.zeros((data_shape))
     Normalized_weighting_function = np.zeros((data_shape))
 
+
+######################## automatically identify border voxels #############################################
+
+    borders = np.ones((dim0, dim1, dim2))
+    border_width = 15
+    borders[border_width:dim0-border_width,border_width:dim1-border_width,:] = 0
+
+######################## Compute and save normalized weighting functions ##################################
+
+    sum_of_weighting_functions = component_weighting_function(borders)
 
     #sigma= 1
 
@@ -200,15 +209,21 @@ if __name__ == '__main__':
 
         #sum_of_weighting_functions += gaussian_filter(component_weighting_function(nifti_to_array(args.component[i])), sigma) ####### Convolving the weigthing functions with a Gaussian kernel for smoothing
 
-    for i in range(0, len(args.component)):
+    np.divide(component_weighting_function(borders), sum_of_weighting_functions, Normalized_weighting_function)
+    k = nib.Nifti1Image(Normalized_weighting_function, nii.affine)
+    save_path = normalized_weighting_function_path+'Normalized_weighting_function_component0.nii.gz'
+    nib.save(k, save_path)
+
+    for i in range (len(args.component)):
 
         np.divide(component_weighting_function(nifti_to_array(args.component[i])), sum_of_weighting_functions, Normalized_weighting_function)
-        #np.divide(gaussian_filter(component_weighting_function(nifti_to_array(args.component[i])), sigma), sum_of_weighting_functions, Normalized_weighting_function)
-
 
         k = nib.Nifti1Image(Normalized_weighting_function, nii.affine)
-        save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i)+'.nii.gz'
+        save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i+1)+'.nii.gz'
         nib.save(k, save_path)
+
+###############################################################################################################
+
 
 
 ###############################################################################################################
@@ -221,6 +236,7 @@ if __name__ == '__main__':
 
     del sum_of_weighting_functions
     del Normalized_weighting_function
+    del borders
 
 
 ##### create an array of matrices: final_transform(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
