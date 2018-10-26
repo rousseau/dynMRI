@@ -27,6 +27,7 @@
   knowledge of the CeCILL-B license and that you accept its terms.
 """
 
+from __future__ import division
 from scipy import ndimage
 import nibabel as nib
 import numpy as np
@@ -41,6 +42,7 @@ from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage.interpolation import map_coordinates
 from scipy.ndimage.morphology import binary_erosion
 import multiprocessing
+
 
 from numpy import *
 
@@ -111,10 +113,10 @@ output : array
 
 def component_weighting_function(data):
 
-    return 1/(1+0.5*distance_to_mask(data)**2)
+    return 1/(1+0.5*np.exp(distance_to_mask(data)))
+    #return 1/(1+0.5*distance_to_mask(data)**2)
 
-    #return gaussian_filter(1/(1+ndimage.distance_transform_edt(data)), sigma=2)
-
+  
 """
 The scipy.linalg.logm method in the scipy library of Python2.7 calculates matrix exponentials via the Padé approximation.
 However, using eigendecomposition to calculate the logarithm of a 4*4 matrix is more accurate and is faster by approximately a factor of 2.
@@ -137,20 +139,29 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-in', '--floating', help='floating input image', type=str, required = True)
-    parser.add_argument('-refweight', '--component', help='', type=str, required = True,action='append')
-    parser.add_argument('-t', '--transform', help='', type=str, required = True,action='append')
+    parser.add_argument('-refweight', '--component', help='bone masks in the target image', type=str, required = True,action='append')
+    parser.add_argument('-t', '--transform', help='bone transforms from source to target image', type=str, required = True,action='append')
     parser.add_argument('-o', '--output', help='Output directory', type=str, required = True)
-    parser.add_argument('-warped_image', '--outputimage', help='Output image name', type=str, required = True)
-    #parser.add_argument('-def_field', '--deformation_field', help='Deformation field image name', type=str, required = True)
+    parser.add_argument('-warped_image', '--outputimage', help='Output image name', type=str, default='Warped_image.nii.gz')
+    parser.add_argument('-def_field', '--deformation_field', help='Deformation field image name', type=str, default='Deformation_field.nii.gz')
+    parser.add_argument('-tempinterp', '--temporal_interpolation', help='Temporal interpolation of the estimated deformation field. Example:\
+    if this argument value is set to 2, the algorithm will return the deformation field half way between the source and the target images'\
+    , type=int, default=1)
+    parser.add_argument('-ordinterp', '--interp_ord', help='(optional): The order of the spline interpolation when mapping input\
+    image intensities to the reference space, default is 3. The order has to be in the range 0-5.', type=int, default=3)
+
 
     args = parser.parse_args()
+
+    t = 1/args.temporal_interpolation
+    
 
     if not os.path.exists(args.output):
         os.makedirs(args.output)
 
     normalized_weighting_function_path = args.output+'/normalized_weighting_function/'
     if not os.path.exists(normalized_weighting_function_path):
-        os.makedirs(normalized_weighting_function_path)
+        os.makedirs(normalized_weighting_functio/Desktop/temporal_resolution_enhancement/tendon_experiencen_path)
 
 ######################compute the normalized weighting function of each component #########################
     nii = nib.load(args.component[0])
@@ -173,7 +184,7 @@ if __name__ == '__main__':
 
     for i in range (len(args.component)):
 
-        sum_of_weighting_functions += component_weighting_function(nifti_to_array(args.component[i]) )
+        sum_of_weighting_functions += component_weighting_function(nifti_to_array(args.component[i]))
 
 
     #np.divide(component_weighting_function(borders), sum_of_weighting_functions, Normalized_weighting_function)
@@ -183,7 +194,8 @@ if __name__ == '__main__':
 
     for i in range (len(args.component)):
 
-        np.divide(component_weighting_function(nifti_to_array(args.component[i])), sum_of_weighting_functions, Normalized_weighting_function)
+        np.divide(component_weighting_function(nifti_to_array(args.component[i])), sum_of_weighting_functions,\
+        Normalized_weighting_function)
 
         k = nib.Nifti1Image(Normalized_weighting_function, nii.affine)
         save_path = normalized_weighting_function_path+'Normalized_weighting_function_component'+str(i)+'.nii.gz'
@@ -198,18 +210,22 @@ if __name__ == '__main__':
     Normalized_weighting_functionSet = glob.glob(normalized_weighting_function_path+'*.nii.gz')
     Normalized_weighting_functionSet.sort()
 
-##### create an array of matrices: T(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
+##### create an array of matrices: T(x,y,z)= ∑i  w_norm(i)[x,y,z]*log(T(i)) ########
     T = np.zeros((dim0, dim1, dim2, 4, 4))
 
     for i in range (len(args.transform)):
-        #np.subtract(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i+1])[:,:,:,newaxis,newaxis]), T)
-        np.subtract(T, np.multiply(matrix_logarithm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), T)
+        #np.subtract(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array\
+        #(Normalized_weighting_functionSet[i+1])[:,:,:,newaxis,newaxis]), T)
+        np.add(T, np.multiply(matrix_logarithm(Text_file_to_matrix(args.transform[i])).real ,t*nifti_to_array\
+        (Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), T)
+
     print("principal matrix logarithm of each bone transformation was successfully computed")
 
-######## compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   ############
-##############################  final_exp_transform(T(x,y,z))= exp(-∑i  w_norm(i)[x,y,z]*log(T(i))) #################################
+######## compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   #####
+##############################  final_exp_transform(T(x,y,z))= exp(-∑i  w_norm(i)[x,y,z]*log(T(i))) ##########################
 
-    d, Y = np.linalg.eig(T)  #returns an array of vectors with the eigenvalues (d[dim0,dim1,dim2,4]) and an array of matrices (Y[dim0,dim1,dim2,(4,4)]) with corresponding eigenvectors
+    d, Y = np.linalg.eig(T)  #returns an array of vectors with the eigenvalues (d[dim0,dim1,dim2,4]) and an array 
+                             #of matrices (Y[dim0,dim1,dim2,(4,4)]) with corresponding eigenvectors
     print("eigenvalues and eigen vectors were successfully computed")
 
     Yi = np.linalg.inv(Y)
@@ -223,17 +239,20 @@ if __name__ == '__main__':
     T[...,0,0] = Y[...,0,0]*Yi[...,0,0]*d[...,0] + Y[...,0,1]*Yi[...,1,0]*d[...,1] + Y[...,0,2]*Yi[...,2,0]*d[...,2]
     T[...,0,1] = Y[...,0,0]*Yi[...,0,1]*d[...,0] + Y[...,0,1]*Yi[...,1,1]*d[...,1] + Y[...,0,2]*Yi[...,2,1]*d[...,2]
     T[...,0,2] = Y[...,0,0]*Yi[...,0,2]*d[...,0] + Y[...,0,1]*Yi[...,1,2]*d[...,1] + Y[...,0,2]*Yi[...,2,2]*d[...,2]
-    T[...,0,3] = Y[...,0,0]*Yi[...,0,3]*d[...,0] + Y[...,0,1]*Yi[...,1,3]*d[...,1] + Y[...,0,2]*Yi[...,2,3]*d[...,2] + Y[...,0,3]*Yi[...,3,3]
+    T[...,0,3] = Y[...,0,0]*Yi[...,0,3]*d[...,0] + Y[...,0,1]*Yi[...,1,3]*d[...,1] + Y[...,0,2]*Yi[...,2,3]*d[...,2] \
+    + Y[...,0,3]*Yi[...,3,3]
     #second row
     T[...,1,0] = Y[...,1,0]*Yi[...,0,0]*d[...,0] + Y[...,1,1]*Yi[...,1,0]*d[...,1] + Y[...,1,2]*Yi[...,2,0]*d[...,2]
     T[...,1,1] = Y[...,1,0]*Yi[...,0,1]*d[...,0] + Y[...,1,1]*Yi[...,1,1]*d[...,1] + Y[...,1,2]*Yi[...,2,1]*d[...,2]
     T[...,1,2] = Y[...,1,0]*Yi[...,0,2]*d[...,0] + Y[...,1,1]*Yi[...,1,2]*d[...,1] + Y[...,1,2]*Yi[...,2,2]*d[...,2]
-    T[...,1,3] = Y[...,1,0]*Yi[...,0,3]*d[...,0] + Y[...,1,1]*Yi[...,1,3]*d[...,1] + Y[...,1,2]*Yi[...,2,3]*d[...,2] + Y[...,1,3]*Yi[...,3,3]
+    T[...,1,3] = Y[...,1,0]*Yi[...,0,3]*d[...,0] + Y[...,1,1]*Yi[...,1,3]*d[...,1] + Y[...,1,2]*Yi[...,2,3]*d[...,2] \
+    + Y[...,1,3]*Yi[...,3,3]
     #third row
     T[...,2,0] = Y[...,2,0]*Yi[...,0,0]*d[...,0] + Y[...,2,1]*Yi[...,1,0]*d[...,1] + Y[...,2,2]*Yi[...,2,0]*d[...,2]
     T[...,2,1] = Y[...,2,0]*Yi[...,0,1]*d[...,0] + Y[...,2,1]*Yi[...,1,1]*d[...,1] + Y[...,2,2]*Yi[...,2,1]*d[...,2]
     T[...,2,2] = Y[...,2,0]*Yi[...,0,2]*d[...,0] + Y[...,2,1]*Yi[...,1,2]*d[...,1] + Y[...,2,2]*Yi[...,2,2]*d[...,2]
-    T[...,2,3] = Y[...,2,0]*Yi[...,0,3]*d[...,0] + Y[...,2,1]*Yi[...,1,3]*d[...,1] + Y[...,2,2]*Yi[...,2,3]*d[...,2] + Y[...,2,3]*Yi[...,3,3]
+    T[...,2,3] = Y[...,2,0]*Yi[...,0,3]*d[...,0] + Y[...,2,1]*Yi[...,1,3]*d[...,1] + Y[...,2,2]*Yi[...,2,3]*d[...,2] \
+    + Y[...,2,3]*Yi[...,3,3]
     #fourth row
     #T[...,3,3]= 1 #in homogeneous coordinates
 
@@ -275,7 +294,7 @@ if __name__ == '__main__':
 
 # Remove final transforms from the computer RAM after computing the vector velocity field
     del T
-
+    
 # Divide by the corresponding voxel sizes (in mm, of the reference image this time)
     np.divide(coords_ref[0,...], ref_header.get_zooms()[0], coords[0,...])
     np.divide(coords_ref[1,...], ref_header.get_zooms()[1], coords[1,...])
@@ -291,6 +310,10 @@ if __name__ == '__main__':
 
     print("warped image is successfully computed")
 
+# Compute the deformation field 
+    def_field = np.concatenate((coords[0,...,newaxis],coords[1,...,newaxis], coords[2,...,newaxis]),axis=3)
+    # 4 dimensional volume ... each image in the volume describes the deformation with respect to a specific direction: x, y or z
+    
 # Create index for the reference space
     i = np.arange(0,dim0)
     j = np.arange(0,dim1)
@@ -310,8 +333,9 @@ if __name__ == '__main__':
     coords = np.reshape(coords, pointset.shape)
     val = np.zeros(iv.shape)
 
-#### Interpolation:  mapping output data into the reference image space by first order nearest neighbor interpolation####
-    map_coordinates(nifti_to_array(args.floating),[coords[0,:],coords[1,:],coords[2,:]],output=val,order=1, mode='nearest')
+#### Interpolation:  mapping output data into the reference image space by first order nearest interpolation####
+    map_coordinates(nifti_to_array(args.floating),[coords[0,:],coords[1,:],coords[2,:]],output=val,order=args.interp_ord\
+    , mode='nearest')
 
     del coords
     output_data = np.reshape(val,nifti_image_shape(args.floating))
@@ -319,4 +343,8 @@ if __name__ == '__main__':
 #######writing and saving warped image ###
     i = nib.Nifti1Image(output_data, nii.affine)
     save_path = args.output + args.outputimage
-nib.save(i, save_path)
+    nib.save(i, save_path)
+    
+    j = nib.Nifti1Image(def_field, nii.affine)
+    save_path2 = args.output + args.deformation_field #'4D_def_field.nii.gz'
+    nib.save(j, save_path2)

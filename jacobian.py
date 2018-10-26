@@ -31,6 +31,7 @@
 import numpy as np
 import nibabel as nib
 import argparse
+from scipy.ndimage.filters import gaussian_filter
 
 
 def nifti_to_array(filename):
@@ -49,8 +50,13 @@ def nifti_get_affine(filename):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('-dfield', '--deffield', help='4 dimensional volume, each 3D image in the volume contains the coordinates of the displacement field with respect to one direction in the space, by convention the first image contains coordinates of the x_axis, the second image contains coordinates of the y_axis and the third one contains coordinates of the z_axis', type=str, required = True)
-    parser.add_argument('-o', '--output', help='Output image full path', type=str, required = True)
+    parser.add_argument('-dfield', '--deffield', help='4 dimensional volume, each 3D image in the volume contains the \
+    coordinates of the displacement field with respect to one direction in the space, by convention the first image \
+    contains coordinates of the x_axis, the second image contains coordinates of the y_axis and the third one contains\
+    coordinates of the z_axis', type=str, required  = True)
+    parser.add_argument('-o', '--output', help='Output image full path', type=str, default='jacobian_map.nii.gz')
+    parser.add_argument('-wfield', '--warpfield', help='0: if you treat warp field as relative: y = x + w(x), so \
+    dy/dx = 1 + dw(x)/dx. 1: if you treat warp field as absolute: y = w(x) so dy/dx = dw(x)/dx ', type=int, default=1)
 
     args = parser.parse_args()
 
@@ -60,17 +66,29 @@ if __name__ == '__main__':
 
     #### Compute jacobian matrix of the displacement field J = dw(x)/dx
 
-    gx_x,gx_y,gx_z = np.gradient(def_field[:,:,:,0])
-    gy_x,gy_y,gy_z = np.gradient(def_field[:,:,:,1])
-    gz_x,gz_y,gz_z = np.gradient(def_field[:,:,:,2])
+    gx_x,gx_y,gx_z = np.gradient(def_field[...,0])
+    gy_x,gy_y,gy_z = np.gradient(def_field[...,1])
+    gz_x,gz_y,gz_z = np.gradient(def_field[...,2])
+   
+    
+    if args.warpfield == 0 :
+       gx_x +=  1
+       gy_y +=  1
+       gz_z +=  1
 
+    ### Gradient vector field Smoothing 
 
-    #  Add identity : In this case we treat warp field as relative: x' = x + w(x), so dx'/dx = 1 + dw(x)/dx = I + J where I is the identity matrix
-    #  Note that we can also treat warp field as absolute: x' = w(x) so dx'/dx = dw(x)/dx
-
-    gx_x +=  1
-    gy_y +=  1
-    gz_z +=  1
+    gaussian_filter(gx_x, sigma=2, output=gx_x)
+    gaussian_filter(gx_y, sigma=2, output=gx_y)
+    gaussian_filter(gx_z, sigma=2, output=gx_z)
+    
+    gaussian_filter(gy_x, sigma=2, output=gy_x)
+    gaussian_filter(gy_y, sigma=2, output=gy_y)
+    gaussian_filter(gy_z, sigma=2, output=gy_z)
+    
+    gaussian_filter(gz_x, sigma=2, output=gz_x)
+    gaussian_filter(gz_y, sigma=2, output=gz_y)
+    gaussian_filter(gz_z, sigma=2, output=gz_z)
 
     #### Compute determinant using the rule of Sarrus
 

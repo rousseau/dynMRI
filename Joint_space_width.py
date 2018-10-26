@@ -188,7 +188,7 @@ if __name__ == '__main__':
 
     ## To reduce the effects of voxelisation when computing the finite differences, we convolve the result with a 3D Gaussian filter
 
-    gaussian_filter(thickness, sigma=(0.5, 0.5, 0.5), output=thickness)
+    #gaussian_filter(thickness, sigma=(0.5, 0.5, 0.5), output=thickness)
 
     print("Thickness between boundaries is successfully computed")
 
