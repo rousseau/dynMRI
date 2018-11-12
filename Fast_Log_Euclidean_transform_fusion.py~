@@ -113,8 +113,8 @@ output : array
 
 def component_weighting_function(data):
 
-    return 1/(1+0.5*np.exp(distance_to_mask(data)))
-    #return 1/(1+0.5*distance_to_mask(data)**2)
+    #return 2/(1+np.exp(0.3*distance_to_mask(data)))
+    return 1/(1+0.5*distance_to_mask(data)**2)
 
   
 """
@@ -333,7 +333,7 @@ if __name__ == '__main__':
     coords = np.reshape(coords, pointset.shape)
     val = np.zeros(iv.shape)
 
-#### Interpolation:  mapping output data into the reference image space by first order nearest interpolation####
+#### Interpolation:  mapping output data into the reference image space by spline interpolation of the requested order ####
     map_coordinates(nifti_to_array(args.floating),[coords[0,:],coords[1,:],coords[2,:]],output=val,order=args.interp_ord\
     , mode='nearest')
 
