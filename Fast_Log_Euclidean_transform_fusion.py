@@ -116,7 +116,7 @@ def component_weighting_function(data):
     #return 2/(1+np.exp(0.3*distance_to_mask(data)))
     return 1/(1+0.5*distance_to_mask(data)**2)
 
-  
+
 """
 The scipy.linalg.logm method in the scipy library of Python2.7 calculates matrix exponentials via the Padé approximation.
 However, using eigendecomposition to calculate the logarithm of a 4*4 matrix is more accurate and is faster by approximately a factor of 2.
@@ -154,14 +154,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     t = 1/args.temporal_interpolation
-    
+
 
     if not os.path.exists(args.output):
         os.makedirs(args.output)
 
     normalized_weighting_function_path = args.output+'/normalized_weighting_function/'
     if not os.path.exists(normalized_weighting_function_path):
-        os.makedirs(normalized_weighting_functio/Desktop/temporal_resolution_enhancement/tendon_experiencen_path)
+        os.makedirs(normalized_weighting_function_path)
 
 ######################compute the normalized weighting function of each component #########################
     nii = nib.load(args.component[0])
@@ -224,7 +224,7 @@ if __name__ == '__main__':
 ######## compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   #####
 ##############################  final_exp_transform(T(x,y,z))= exp(-∑i  w_norm(i)[x,y,z]*log(T(i))) ##########################
 
-    d, Y = np.linalg.eig(T)  #returns an array of vectors with the eigenvalues (d[dim0,dim1,dim2,4]) and an array 
+    d, Y = np.linalg.eig(T)  #returns an array of vectors with the eigenvalues (d[dim0,dim1,dim2,4]) and an array
                              #of matrices (Y[dim0,dim1,dim2,(4,4)]) with corresponding eigenvectors
     print("eigenvalues and eigen vectors were successfully computed")
 
@@ -294,7 +294,7 @@ if __name__ == '__main__':
 
 # Remove final transforms from the computer RAM after computing the vector velocity field
     del T
-    
+
 # Divide by the corresponding voxel sizes (in mm, of the reference image this time)
     np.divide(coords_ref[0,...], ref_header.get_zooms()[0], coords[0,...])
     np.divide(coords_ref[1,...], ref_header.get_zooms()[1], coords[1,...])
@@ -310,10 +310,10 @@ if __name__ == '__main__':
 
     print("warped image is successfully computed")
 
-# Compute the deformation field 
+# Compute the deformation field
     def_field = np.concatenate((coords[0,...,newaxis],coords[1,...,newaxis], coords[2,...,newaxis]),axis=3)
     # 4 dimensional volume ... each image in the volume describes the deformation with respect to a specific direction: x, y or z
-    
+
 # Create index for the reference space
     i = np.arange(0,dim0)
     j = np.arange(0,dim1)
@@ -344,7 +344,7 @@ if __name__ == '__main__':
     i = nib.Nifti1Image(output_data, nii.affine)
     save_path = args.output + args.outputimage
     nib.save(i, save_path)
-    
+
     j = nib.Nifti1Image(def_field, nii.affine)
     save_path2 = args.output + args.deformation_field #'4D_def_field.nii.gz'
     nib.save(j, save_path2)
