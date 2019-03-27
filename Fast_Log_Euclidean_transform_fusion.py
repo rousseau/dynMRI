@@ -113,7 +113,7 @@ output : array
 
 def component_weighting_function(data):
 
-    #return 2/(1+np.exp(0.3*distance_to_mask(data)))
+    #return 2/(1+np.exp(0.4*distance_to_mask(data)))
     return 1/(1+0.5*distance_to_mask(data)**2)
 
 
