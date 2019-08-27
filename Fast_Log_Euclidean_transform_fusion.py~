@@ -216,7 +216,7 @@ if __name__ == '__main__':
     for i in range (len(args.transform)):
         #np.subtract(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array\
         #(Normalized_weighting_functionSet[i+1])[:,:,:,newaxis,newaxis]), T)
-        np.add(T, np.multiply(matrix_logarithm(Text_file_to_matrix(args.transform[i])).real ,t*nifti_to_array\
+        np.add(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real ,t*nifti_to_array\
         (Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), T)
 
     print("principal matrix logarithm of each bone transformation was successfully computed")

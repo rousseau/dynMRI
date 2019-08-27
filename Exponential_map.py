@@ -3,6 +3,7 @@
 """
   © IMT Atlantique - LATIM-INSERM UMR 1101
   Author(s): Karim Makki (karim.makki@imt-atlantique.fr)
+
   This software is governed by the CeCILL-B license under French law and
   abiding by the rules of distribution of free software.  You can  use,
   modify and/ or redistribute the software under the terms of the CeCILL-B
@@ -25,6 +26,17 @@
   same conditions as regards security.
   The fact that you are presently reading this means that you have had
   knowledge of the CeCILL-B license and that you accept its terms.
+
+  If you use the code for your research, please cite one of these papers:
+
+  [1] K.Makki et al. "High-resolution temporal reconstruction of ankle joint
+  from dynamic MRI",  2018 IEEE 15th International Symposium on Biomedical
+  Imaging (ISBI 2018).
+  [2] K.Makki et al. "Temporal resolution enhancement of dynamic MRI sequences
+  within a motion-based framework",  2019 IEEE 41st International Engineering
+  in Medicine and Biology Conference (EMBC 2019).
+
+
 """
 
 from __future__ import division
@@ -42,17 +54,24 @@ from scipy.ndimage.filters import gaussian_filter
 from scipy.ndimage.interpolation import map_coordinates
 from scipy.ndimage.morphology import binary_erosion
 import multiprocessing
-
-
+import tensorflow as tf
 from numpy import *
+import timeit
 
+tf.enable_eager_execution()
+
+
+def tensor_to_array(tensor1):
+    return tensor1.numpy()
 
 
 def Text_file_to_matrix(filename):
 
    T = np.loadtxt(str(filename), dtype='f')
 
-   return np.mat(T)
+   return np.round(np.mat(T),3)
+
+   #return np.mat(T)
 
 
 def nifti_to_array(filename):
@@ -113,8 +132,8 @@ output : array
 
 def component_weighting_function(data):
 
-    #return 2/(1+np.exp(0.4*distance_to_mask(data)))
-    return 1/(1+0.5*distance_to_mask(data)**2)
+    return 2/(1+np.exp(0.1*distance_to_mask(data)))
+    #return 1/(1+0.5*distance_to_mask(data)**2)
 
 
 """
@@ -139,21 +158,23 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-in', '--floating', help='floating input image', type=str, required = True)
-    parser.add_argument('-refweight', '--component', help='bone masks in the target image', type=str, required = True,action='append')
-    parser.add_argument('-t', '--transform', help='bone transforms from source to target image', type=str, required = True,action='append')
+    parser.add_argument('-refweight', '--component', help='bone masks in the source image', type=str, required = True,action='append')
+    parser.add_argument('-t', '--transform', help='bone transforms from source to target image, transformations must be entered\
+     in the same order as that of the associated masks ', type=str, required = True,action='append')
     parser.add_argument('-o', '--output', help='Output directory', type=str, required = True)
     parser.add_argument('-warped_image', '--outputimage', help='Output image name', type=str, default='Warped_image.nii.gz')
     parser.add_argument('-def_field', '--deformation_field', help='Deformation field image name', type=str, default='Deformation_field.nii.gz')
-    parser.add_argument('-tempinterp', '--temporal_interpolation', help='Temporal interpolation of the estimated deformation field. Example:\
-    if this argument value is set to 2, the algorithm will return the deformation field half way between the source and the target images'\
-    , type=int, default=1)
+    parser.add_argument('-tempinterp', '--temporal_interpolation', help='(optional):Temporal interpolation of the estimated deformation field.\
+     This parameter must be comprised between 0 and 1', type= float, default=1)
     parser.add_argument('-ordinterp', '--interp_ord', help='(optional): The order of the spline interpolation when mapping input\
     image intensities to the reference space, default is 3. The order has to be in the range 0-5.', type=int, default=3)
+    parser.add_argument('-expmap', '--exp_map', help='(optional): The technique to be used for the computation of the \
+    exponential map, 0 if the eigendecomposition and 1 if the scaling and squaring, default is the eigendecomposition method', type=int, default=0)
 
 
     args = parser.parse_args()
 
-    t = 1/args.temporal_interpolation
+    t = args.temporal_interpolation
 
 
     if not os.path.exists(args.output):
@@ -168,12 +189,6 @@ if __name__ == '__main__':
     data_shape = nifti_image_shape(args.component[0])
     dim0, dim1, dim2 = nifti_image_shape(args.floating)
 
-######################## automatically identify border voxels #############################################
-
-    #borders = np.ones((dim0, dim1, dim2))
-    #border_width = 15
-    #borders[border_width:dim0-border_width,border_width:dim1-border_width,:] = 0
-
 ######################## Compute and save normalized weighting functions ##################################
 
     #sum_of_weighting_functions = component_weighting_function(borders)
@@ -186,11 +201,6 @@ if __name__ == '__main__':
 
         sum_of_weighting_functions += component_weighting_function(nifti_to_array(args.component[i]))
 
-
-    #np.divide(component_weighting_function(borders), sum_of_weighting_functions, Normalized_weighting_function)
-    #k = nib.Nifti1Image(Normalized_weighting_function, nii.affine)
-    #save_path = normalized_weighting_function_path+'Normalized_weighting_function_component0.nii.gz'
-    #nib.save(k, save_path)
 
     for i in range (len(args.component)):
 
@@ -214,54 +224,38 @@ if __name__ == '__main__':
     T = np.zeros((dim0, dim1, dim2, 4, 4))
 
     for i in range (len(args.transform)):
-        #np.subtract(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array\
-        #(Normalized_weighting_functionSet[i+1])[:,:,:,newaxis,newaxis]), T)
-        np.add(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real ,t*nifti_to_array\
+        np.subtract(T, np.multiply(la.logm(Text_file_to_matrix(args.transform[i])).real , nifti_to_array\
         (Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), T)
+        #np.add(T, np.multiply(matrix_logarithm(Text_file_to_matrix(args.transform[i])).real ,t*nifti_to_array\
+        #(Normalized_weighting_functionSet[i])[:,:,:,newaxis,newaxis]), T)
 
     print("principal matrix logarithm of each bone transformation was successfully computed")
 
-######## compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   #####
-##############################  final_exp_transform(T(x,y,z))= exp(-∑i  w_norm(i)[x,y,z]*log(T(i))) ##########################
+    start_time = timeit.default_timer()
 
-    d, Y = np.linalg.eig(T)  #returns an array of vectors with the eigenvalues (d[dim0,dim1,dim2,4]) and an array
-                             #of matrices (Y[dim0,dim1,dim2,(4,4)]) with corresponding eigenvectors
-    print("eigenvalues and eigen vectors were successfully computed")
+# ######## compute the exponential map using the scaling and squaring method   ############################################
+    if (args.exp_map == 1):
 
-    Yi = np.linalg.inv(Y)
-    print("eigenvectors were successfully inverted")
+      a= tf.linalg.expm(T,name=None)
+      T = tensor_to_array(a)
 
-    d = np.exp(d)  # exp(T) = Y*exp(d)*inv(Y).  exp (d) is much more easy to calculate than exp(T)
-    #since, for a diagonal matrix, we just need to exponentiate the diagonal elements.
-    print("exponentiate the diagonal elements (complex eigenvalues): done")
+      elapsed = timeit.default_timer() - start_time
+      print("The exp map via the scaling and squaring method takes:\n")
+      print(elapsed)
 
-    #first row
-    T[...,0,0] = Y[...,0,0]*Yi[...,0,0]*d[...,0] + Y[...,0,1]*Yi[...,1,0]*d[...,1] + Y[...,0,2]*Yi[...,2,0]*d[...,2]
-    T[...,0,1] = Y[...,0,0]*Yi[...,0,1]*d[...,0] + Y[...,0,1]*Yi[...,1,1]*d[...,1] + Y[...,0,2]*Yi[...,2,1]*d[...,2]
-    T[...,0,2] = Y[...,0,0]*Yi[...,0,2]*d[...,0] + Y[...,0,1]*Yi[...,1,2]*d[...,1] + Y[...,0,2]*Yi[...,2,2]*d[...,2]
-    T[...,0,3] = Y[...,0,0]*Yi[...,0,3]*d[...,0] + Y[...,0,1]*Yi[...,1,3]*d[...,1] + Y[...,0,2]*Yi[...,2,3]*d[...,2] \
-    + Y[...,0,3]*Yi[...,3,3]
-    #second row
-    T[...,1,0] = Y[...,1,0]*Yi[...,0,0]*d[...,0] + Y[...,1,1]*Yi[...,1,0]*d[...,1] + Y[...,1,2]*Yi[...,2,0]*d[...,2]
-    T[...,1,1] = Y[...,1,0]*Yi[...,0,1]*d[...,0] + Y[...,1,1]*Yi[...,1,1]*d[...,1] + Y[...,1,2]*Yi[...,2,1]*d[...,2]
-    T[...,1,2] = Y[...,1,0]*Yi[...,0,2]*d[...,0] + Y[...,1,1]*Yi[...,1,2]*d[...,1] + Y[...,1,2]*Yi[...,2,2]*d[...,2]
-    T[...,1,3] = Y[...,1,0]*Yi[...,0,3]*d[...,0] + Y[...,1,1]*Yi[...,1,3]*d[...,1] + Y[...,1,2]*Yi[...,2,3]*d[...,2] \
-    + Y[...,1,3]*Yi[...,3,3]
-    #third row
-    T[...,2,0] = Y[...,2,0]*Yi[...,0,0]*d[...,0] + Y[...,2,1]*Yi[...,1,0]*d[...,1] + Y[...,2,2]*Yi[...,2,0]*d[...,2]
-    T[...,2,1] = Y[...,2,0]*Yi[...,0,1]*d[...,0] + Y[...,2,1]*Yi[...,1,1]*d[...,1] + Y[...,2,2]*Yi[...,2,1]*d[...,2]
-    T[...,2,2] = Y[...,2,0]*Yi[...,0,2]*d[...,0] + Y[...,2,1]*Yi[...,1,2]*d[...,1] + Y[...,2,2]*Yi[...,2,2]*d[...,2]
-    T[...,2,3] = Y[...,2,0]*Yi[...,0,3]*d[...,0] + Y[...,2,1]*Yi[...,1,3]*d[...,1] + Y[...,2,2]*Yi[...,2,3]*d[...,2] \
-    + Y[...,2,3]*Yi[...,3,3]
-    #fourth row
-    #T[...,3,3]= 1 #in homogeneous coordinates
+    else:
+###### compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   #####
+############################  final_exp_transform(T(x,y,z))= exp(-∑i  w_norm(i)[x,y,z]*log(T(i))) ##########################
+      d, Y = np.linalg.eig(T)
+      Yi = np.linalg.inv(Y)
+      D = np.zeros((*d.shape, d.shape[-1]), d.dtype)
+      np.einsum('...jj->...j', D)[...] = np.exp(d)
 
-    ### Remove Y, Yi, and d from the computer RAM
-    del Y
-    del Yi
-    del d
+      T = tf.linalg.matmul(tf.linalg.matmul(Y,D),Yi)
 
-    print("final exponential mapping is successfully computed")
+      elapsed = timeit.default_timer() - start_time
+      print("The exp map via the eigendecomposition method takes:\n")
+      print(elapsed)
 
 ######## compute the warped image #################################
 
