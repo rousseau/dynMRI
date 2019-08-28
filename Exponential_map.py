@@ -236,6 +236,8 @@ if __name__ == '__main__':
 # ######## compute the exponential map using the scaling and squaring method   ############################################
     if (args.exp_map == 1):
 
+      start_time = timeit.default_timer()
+
       a= tf.linalg.expm(T,name=None)
       T = tensor_to_array(a)
 
@@ -246,12 +248,33 @@ if __name__ == '__main__':
     else:
 ###### compute the exponential of each matrix in the final_log_transform array of matrices using Eigen decomposition   #####
 ############################  final_exp_transform(T(x,y,z))= exp(-∑i  w_norm(i)[x,y,z]*log(T(i))) ##########################
+      start_time = timeit.default_timer()
       d, Y = np.linalg.eig(T)
       Yi = np.linalg.inv(Y)
-      D = np.zeros((*d.shape, d.shape[-1]), d.dtype)
-      np.einsum('...jj->...j', D)[...] = np.exp(d)
+      # D = np.zeros((*d.shape, d.shape[-1]), d.dtype)
+      # np.einsum('...jj->...j', D)[...] = np.exp(d)
+      #
+      # T = tf.linalg.matmul(tf.linalg.matmul(Y,D),Yi)
+      d = np.exp(d)
 
-      T = tf.linalg.matmul(tf.linalg.matmul(Y,D),Yi)
+      #first row
+      T[...,0,0] = Y[...,0,0]*Yi[...,0,0]*d[...,0] + Y[...,0,1]*Yi[...,1,0]*d[...,1] + Y[...,0,2]*Yi[...,2,0]*d[...,2]
+      T[...,0,1] = Y[...,0,0]*Yi[...,0,1]*d[...,0] + Y[...,0,1]*Yi[...,1,1]*d[...,1] + Y[...,0,2]*Yi[...,2,1]*d[...,2]
+      T[...,0,2] = Y[...,0,0]*Yi[...,0,2]*d[...,0] + Y[...,0,1]*Yi[...,1,2]*d[...,1] + Y[...,0,2]*Yi[...,2,2]*d[...,2]
+      T[...,0,3] = Y[...,0,0]*Yi[...,0,3]*d[...,0] + Y[...,0,1]*Yi[...,1,3]*d[...,1] + Y[...,0,2]*Yi[...,2,3]*d[...,2] \
+      + Y[...,0,3]*Yi[...,3,3]
+      #second row
+      T[...,1,0] = Y[...,1,0]*Yi[...,0,0]*d[...,0] + Y[...,1,1]*Yi[...,1,0]*d[...,1] + Y[...,1,2]*Yi[...,2,0]*d[...,2]
+      T[...,1,1] = Y[...,1,0]*Yi[...,0,1]*d[...,0] + Y[...,1,1]*Yi[...,1,1]*d[...,1] + Y[...,1,2]*Yi[...,2,1]*d[...,2]
+      T[...,1,2] = Y[...,1,0]*Yi[...,0,2]*d[...,0] + Y[...,1,1]*Yi[...,1,2]*d[...,1] + Y[...,1,2]*Yi[...,2,2]*d[...,2]
+      T[...,1,3] = Y[...,1,0]*Yi[...,0,3]*d[...,0] + Y[...,1,1]*Yi[...,1,3]*d[...,1] + Y[...,1,2]*Yi[...,2,3]*d[...,2] \
+      + Y[...,1,3]*Yi[...,3,3]
+      #third row
+      T[...,2,0] = Y[...,2,0]*Yi[...,0,0]*d[...,0] + Y[...,2,1]*Yi[...,1,0]*d[...,1] + Y[...,2,2]*Yi[...,2,0]*d[...,2]
+      T[...,2,1] = Y[...,2,0]*Yi[...,0,1]*d[...,0] + Y[...,2,1]*Yi[...,1,1]*d[...,1] + Y[...,2,2]*Yi[...,2,1]*d[...,2]
+      T[...,2,2] = Y[...,2,0]*Yi[...,0,2]*d[...,0] + Y[...,2,1]*Yi[...,1,2]*d[...,1] + Y[...,2,2]*Yi[...,2,2]*d[...,2]
+      T[...,2,3] = Y[...,2,0]*Yi[...,0,3]*d[...,0] + Y[...,2,1]*Yi[...,1,3]*d[...,1] + Y[...,2,2]*Yi[...,2,3]*d[...,2] \
+      + Y[...,2,3]*Yi[...,3,3]
 
       elapsed = timeit.default_timer() - start_time
       print("The exp map via the eigendecomposition method takes:\n")
