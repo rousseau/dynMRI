@@ -113,7 +113,8 @@ output : array
 def component_weighting_function(data):
 
     np.subtract(np.max(data), data, data)
-    return 1/(1+0.5*ndimage.distance_transform_edt(data)**2)
+    #return 1/(1+0.5*ndimage.distance_transform_edt(data)**2)
+    return 2/(1+np.exp(0.1*ndimage.distance_transform_edt(data)))
 
 
 """
@@ -233,7 +234,7 @@ if __name__ == '__main__':
 
     del sum_of_weighting_functions
     del Normalized_weighting_function
-    
+
 ##### create an array of matrices: final_transform(x,y,z)= -∑i  w_norm(i)[x,y,z]*log(T(i)) ########
 
     final_log_transform = np.zeros((dim0, dim1, dim2, 4, 4))
