@@ -26,10 +26,11 @@ import argparse
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description='Texture plugger')
-  parser.add_argument('-is', '--inputSTL', help='Input STL', type=str, required=False, default = '/home/benjamin/Documents/DataYue/atlas_calcaneus_segment_full.stl')
-  parser.add_argument('-it', '--inputNifti', help='Input nifti texture', type=str, required=False, default = '/home/benjamin/Documents/DataYue/score_deformation_edge_all.nii')
-  parser.add_argument('-o', '--output', help='Output ply mesh', type=str, required=False, default = 'lin_mesh.ply')
-  parser.add_argument('-s', '--smoothing', help = 'Smoothing type, NearestNeighbor, linear or Bspline', type = str, required = False, default = 'BSpline')
+  parser.add_argument('-s', '--inputSTL', help='Input STL', type=str, required=True)
+  parser.add_argument('-n', '--inputNifti', help='Input nifti texture', type=str, required=True)
+  parser.add_argument('-o', '--output', help='Output ply mesh', type=str, required=False, default = 'mesh.ply')
+  parser.add_argument('-i', '--interpolation', help = 'Smoothing type, nearest, linear or bspline', type = str, required = False, default = 'bspline')
+  parser.add_argument('--scaling', help = 'Intensity scaling (in ply format, color is coded in uchar)', type = float, required = False, default = 1)
 
   args = parser.parse_args()
 
@@ -39,56 +40,45 @@ smoothing_type = args.smoothing
 
 mesh = tr.load(stl_path)
 itkimage = itk.imread (nii_path)
+texture = np.zeros (len(mesh.vertices))
 
 if smoothing_type == 'linear':
-    texture = np.zeros (len(mesh.vertices))
-    lin_interpolator = itk.LinearInterpolateImageFunction.New (itkimage)
-    for i in range(len(mesh.vertices)):
-        #find the closest pixel
-        index = itkimage.TransformPhysicalPointToContinuousIndex(mesh.vertices[i])
-        #get the texture from the pixel
-        texture[i] = lin_interpolator.EvaluateAtContinuousIndex(index)
+  interpolator = itk.LinearInterpolateImageFunction.New (itkimage)
+elif smoothing_type == 'bspline':
+  #BSpline interpolator
+  interpolator = itk.BSplineInterpolateImageFunction.New (itkimage)
+elif smoothing_type == 'nearest':
+  # for binarized images
+  interpolator = itk.NearestNeighborInterpolateImageFunction.New (itkimage)
+else : 
+  print('The type of interpolator is invalid.')
 
-if smoothing_type == 'BSpline':
-    #BSpline interpolator
-    texture = np.zeros (len(mesh.vertices))
-    BSpline_interpolator = itk.BSplineInterpolateImageFunction.New (itkimage)
-    for i in range(len(mesh.vertices)):
-        #find the closest pixel
-        index = itkimage.TransformPhysicalPointToContinuousIndex(mesh.vertices[i])
-        #get the texture from the pixel
-        texture[i] = BSpline_interpolator.EvaluateAtContinuousIndex(index)
-
-if smoothing_type == 'NearestNeighbor':
-    # for binarized images
-    texture = np.zeros (len(mesh.vertices))
-    nn_interpolator = itk.NearestNeighborInterpolateImageFunction.New (itkimage)
-    for i in range(len(mesh.vertices)):
-        #find the closest pixel
-        index = itkimage.TransformPhysicalPointToContinuousIndex(mesh.vertices[i])
-        #get the texture from the pixel
-        texture[i] = nn_interpolator.EvaluateAtContinuousIndex(index)
+for i in range(len(mesh.vertices)):
+  #find the closest pixel
+  index = itkimage.TransformPhysicalPointToContinuousIndex(mesh.vertices[i])
+  #get the texture from the pixel
+  texture[i] = interpolator.EvaluateAtContinuousIndex(index)
 
 
 def uglyRGB (texture):
-    #include converstion to 0-255 scale
-    output = np.zeros (len(texture))
+  #include converstion to 0-255 scale
+  output = np.zeros (len(texture))
 
-    maxtex = max(texture)
-    print(maxtex)
-    mintex = min(texture)
-    print(mintex)
+  maxtex = max(texture)
+  print(maxtex)
+  mintex = min(texture)
+  print(mintex)
 
-    min_max_scaler = preprocessing.MinMaxScaler()
-    output = min_max_scaler.fit_transform(texture.reshape(-1, 1)).reshape(texture.shape) * 100
-    return output
+  min_max_scaler = preprocessing.MinMaxScaler()
+  output = min_max_scaler.fit_transform(texture.reshape(-1, 1)).reshape(texture.shape) * 100
+  return output
  
 
-texture = uglyRGB(texture)
+#texture = uglyRGB(texture)
 print(np.max(texture))
 #modify in place texture of a mesh
 for i in range(len(mesh.visual.vertex_colors)):
-    mesh.visual.vertex_colors[i] = [texture[i], texture[i], texture[i], texture[i]] #red, green, blue, alpha (?)
+  mesh.visual.vertex_colors[i] = [args.scaling*texture[i], 0, 0, 0] #red, green, blue, alpha (?)
 
 #mesh.show()
 
