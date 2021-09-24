@@ -36,19 +36,17 @@ if __name__ == '__main__':
 
 stl_path = args.inputSTL
 nii_path = args.inputNifti
-smoothing_type = args.smoothing
+interpolation_type = args.interpolation
 
 mesh = tr.load(stl_path)
 itkimage = itk.imread (nii_path)
 texture = np.zeros (len(mesh.vertices))
 
-if smoothing_type == 'linear':
+if interpolation_type == 'linear':
   interpolator = itk.LinearInterpolateImageFunction.New (itkimage)
-elif smoothing_type == 'bspline':
-  #BSpline interpolator
+elif interpolation_type == 'bspline':
   interpolator = itk.BSplineInterpolateImageFunction.New (itkimage)
-elif smoothing_type == 'nearest':
-  # for binarized images
+elif interpolation_type == 'nearest':
   interpolator = itk.NearestNeighborInterpolateImageFunction.New (itkimage)
 else : 
   print('The type of interpolator is invalid.')
