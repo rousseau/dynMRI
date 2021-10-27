@@ -1,11 +1,20 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+@author: CYY
+"""
+
 import os
+import glob
+import argparse
 import numpy as np
 import nibabel as nib
 from scipy import stats
 from multiprocessing import Pool
 from sklearn import preprocessing
-from sklearn.decomposition import KernelPCA
+from sklearn.decomposition import PCA, KernelPCA
 from pyanom.outlier_detection import HotelingT2
+from skimage.morphology import binary_dilation, ball
 
 
 def data_loading(input_path):
@@ -19,94 +28,141 @@ def img_generation(array, affine, save_path):
     nib.save(img, save_path)
 
 
-def detection_t2(temoins, equins, nums, nums_t, arr_atlas, affine, detection_save_path):
+def dilation(img_arr):
+    img_arr[img_arr != 0] = 1
+    kernel = ball(10)
+    img_arr_dilated = binary_dilation(img_arr, kernel).astype(img.get_data_dtype())
+    return img_arr_dilated
+
+
+def detection_t2(temoins, equins, arr_atlas):
     p = np.zeros((equins.shape[0], 323, 323, 144, 3), dtype=float)
     p_t = np.zeros((temoins.shape[0], 323, 323, 144, 3), dtype=float)
     print('Starting Hotelling\'s T2 test')
 
-    for i in range(107):
-        for j in range(107):
-            for k in range(48):
-                if (arr_atlas[i*3:(i+1)*3, j*3:(j+1)*3, k*3:(k+1)*3] == np.zeros((3, 3, 3, 3))).all():
+    for i in range(323):
+        for j in range(323):
+            for k in range(144):
+                if arr_atlas[i, j, k] == 0:
                     pass
                 else:
                     for m in range(3):
                         model = HotelingT2()
-                        model.fit((temoins[:, i*3:(i+1)*3, j*3:(j+1)*3, k*3:(k+1)*3, m].reshape(-1, 1)))
-                        temoin_score = model.score(temoins[:, i*3:(i+1)*3, j*3:(j+1)*3, k*3:(k+1)*3, m].reshape(-1, 1))
-                        p_t[:, i * 3:(i + 1) * 3, j * 3:(j + 1) * 3, k * 3:(k + 1) * 3, m] = temoin_score.reshape(temoins.shape[0], 3, 3, 3)
-                        anomaly_score = model.score(equins[:, i*3:(i+1)*3, j*3:(j+1)*3, k*3:(k+1)*3, m].reshape(-1, 1))
-                        p[:, i * 3:(i + 1) * 3, j * 3:(j + 1) * 3, k * 3:(k + 1) * 3, m] = anomaly_score.reshape(equins.shape[0], 3, 3, 3)
+                        model.fit((temoins[:, i, j, k, m].reshape(-1, 1)))
+                        temoin_score = model.score(temoins[:, i, j, k, m].reshape(-1, 1))
+                        p_t[:, i, j, k, m] = temoin_score.reshape(temoins.shape[0], )
+                        anomaly_score = model.score(equins[:, i, j, k, m].reshape(-1, 1))
+                        p[:, i, j, k, m] = anomaly_score.reshape(equins.shape[0], )
     p = np.mean(p, axis=4)
     p_t = np.mean(p_t, axis=4)
-
-    for i in range(len(nums)):
-        img_generation(p_t[i], affine, os.path.join(detection_save_path, nums_t[i] + '_score_0.nii.gz'))
-        img_generation(p[i], affine, os.path.join(detection_save_path, nums[i] + '_score_0.nii.gz'))
 
     print('Hotelling\'s T2 test finished')
     return p, p_t
 
 
-def detection_kpca(temoins, equins, nums, nums_t, affine, detection_save_path):
+def detection_pca(temoins, equins, arr_atlas):
+    print('Starting PCA')
+
+    temoins_edge = temoins[:, arr_atlas != 0]
+    equins_edge = equins[:, arr_atlas != 0]
+
+    pca = PCA().fit(temoins_edge.reshape(temoins_edge.shape[0], temoins_edge.shape[1] * 3))
+
+    decomp_t = pca.transform(temoins_edge.reshape(temoins_edge.shape[0], temoins_edge.shape[1] * 3))
+    recons_t = pca.inverse_transform(decomp_t).reshape(temoins_edge.shape[0], temoins_edge.shape[1], 3)
+    p_t = np.power((recons_t - temoins_edge), 2)
+    p_t = np.mean(p_t, axis=2)
+    reconstruction_t = np.zeros((temoins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2], 3))
+    reconstruction_t[:, arr_atlas != 0] = recons_t
+    detection_t = np.zeros((temoins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2]))
+    detection_t[:, arr_atlas != 0] = p_t
+
+    decomp_e = pca.transform(equins_edge.reshape(equins_edge.shape[0], equins_edge.shape[1] * 3))
+    recons_e = pca.inverse_transform(decomp_e).reshape(equins_edge.shape[0], equins_edge.shape[1], 3)
+    p = np.power((recons_e - equins_edge), 2)
+    p = np.mean(p, axis=2)
+    reconstruction_e = np.zeros((equins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2], 3))
+    reconstruction_e[:, arr_atlas != 0] = recons_e
+    detection_e = np.zeros((equins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2]))
+    detection_e[:, arr_atlas != 0] = p
+
+    print('PCA finished')
+    return detection_e, detection_t
+
+
+def detection_kpca(temoins, equins, arr_atlas):
     print('Starting KPCA')
 
-    kpca = KernelPCA(kernel='rbf', fit_inverse_transform=True).fit(temoins.reshape(temoins.shape[0], 323 * 323 * 144 * 3))
-    
-    decomp_t = kpca.transform(temoins.reshape(temoins.shape[0], 323 * 323 * 144 * 3))
-    recons_t = kpca.inverse_transform(decomp_t).reshape(temoins.shape[0], 323,  323, 144, 3)
-    p_t = np.power((recons_t - temoins), 2)
-    p_t = np.mean(p_t, axis=4)
+    temoins_edge = temoins[:, arr_atlas != 0]
+    equins_edge = equins[:, arr_atlas != 0]
 
-    for i in range(len(nums_t)):
-        img_generation(recons_t[i], affine, os.path.join(detection_save_path, nums_t[i] + '_reconstruction.nii.gz'))
-        img_generation(p_t[i], affine, os.path.join(detection_save_path, nums_t[i] + '_score_0.nii.gz'))
-    
-    decomp_e = kpca.transform(equins.reshape(equins.shape[0], 323 * 323 * 144 * 3))
-    recons_e = kpca.inverse_transform(decomp_e).reshape(equins.shape[0], 323,  323, 144, 3)
-    p = np.power((recons_e - equins), 2)
-    p = np.mean(p, axis=4)
+    kpca = KernelPCA(kernel='rbf', fit_inverse_transform=True).fit(
+        temoins_edge.reshape(temoins_edge.shape[0], temoins_edge.shape[1] * 3))
 
-    for i in range(len(nums)):
-        img_generation(recons_e[i], affine, os.path.join(detection_save_path, nums[i] + '_reconstruction.nii.gz'))
-        img_generation(p[i], affine, os.path.join(detection_save_path, nums[i] + '_score_0.nii.gz'))
+    decomp_t = kpca.transform(temoins_edge.reshape(temoins_edge.shape[0], temoins_edge.shape[1] * 3))
+    recons_t = kpca.inverse_transform(decomp_t).reshape(temoins_edge.shape[0], temoins_edge.shape[1], 3)
+    p_t = np.power((recons_t - temoins_edge), 2)
+    p_t = np.mean(p_t, axis=2)
+    reconstruction_t = np.zeros((temoins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2], 3))
+    reconstruction_t[:, arr_atlas != 0] = recons_t
+    detection_t = np.zeros((temoins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2]))
+    detection_t[:, arr_atlas != 0] = p_t
+
+    decomp_e = kpca.transform(equins_edge.reshape(equins_edge.shape[0], equins_edge.shape[1] * 3))
+    recons_e = kpca.inverse_transform(decomp_e).reshape(equins_edge.shape[0], equins_edge.shape[1], 3)
+    p = np.power((recons_e - equins_edge), 2)
+    p = np.mean(p, axis=2)
+    reconstruction_e = np.zeros((equins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2], 3))
+    reconstruction_e[:, arr_atlas != 0] = recons_e
+    detection_e = np.zeros((equins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2]))
+    detection_e[:, arr_atlas != 0] = p
 
     print('KPCA finished')
-    return p, p_t
+    return detection_e, detection_t
 
 
 if __name__ == '__main__':
-    bone = 'calcaneus'
-    method = ['kpca', 't2']
-    deformationDirectory = './' + bone + '/deformation_edge'
-    out_path = './' + bone
-    atlas = './atlas_unet3_edge_' + bone + '.nii.gz'
+    parser = argparse.ArgumentParser(description='Texture plugger')
+    parser.add_argument('-b', '--bone', help='bone to analysis', type=str, required=True, default='calcaneus')
+    parser.add_argument('-t', '--td', help='path to TD subjects\' Warp files', type=str, required=True, default='./td_warp')
+    parser.add_argument('-c', '--cp', help='path to CP subjects\' Warp files', type=str, required=True, default='./cp_warp')
+    parser.add_argument('-o', '--output', help='path to output files', type=str, required=False, default='./results')
 
+    args = parser.parse_args()
+
+    bone = args.bone
+    method = ['t2', 'kpca', 'pca']
+    def_td = args.td
+    def_cp = args.cp
+
+    atlas = './' + bone + '.nii.gz'
     img_atlas = nib.load(atlas)
     affine = img_atlas.affine
     arr_atlas = img_atlas.get_fdata()
+    arr_atlas = dilation(arr_atlas)
+    shape = arr_atlas.shape
 
-    temoin_num = ['T01', 'T02', 'T03', 'T04', 'T05', 'T06', 'T07', 'T08', 'T09', 'T10', 'T11']
-    equin_num = ['E01', 'E02', 'E05', 'E06', 'E08', 'E09', 'E10', 'E11', 'E13']
-    #equin_num = ['equins']
-    shape = (323, 323, 144, 3)
+    warp_shape = (shape[0], shape[1], shape[2], 3)
 
-    deformation_temoin = np.zeros(shape, dtype=float)
+    deformation_temoin = np.zeros(warp_shape, dtype=float)
     deformation_temoin = deformation_temoin[np.newaxis, :]
 
-    deformation_equin = np.zeros(shape, dtype=float)
+    deformation_equin = np.zeros(warp_shape, dtype=float)
     deformation_equin = deformation_equin[np.newaxis, :]
 
+    temoins = glob.glob(os.path.join(def_td, '*1Warp.nii.gz'))
+    equins = glob.glob(os.path.join(def_cp, '*1Warp.nii.gz'))
+
     thr = Pool(processes=5)
-    for t in range(len(temoin_num)):
-        deformation_t = thr.apply_async(data_loading, args=(os.path.join(deformationDirectory, temoin_num[t] + '_edge.nii.gz'),))
+    for t in range(len(temoins)):
+        deformation_t = thr.apply_async(data_loading, args=(temoins[t],))
         if t == 0:
             deformation_temoin[0] = deformation_t.get().reshape(shape)
         else:
             deformation_temoin = np.insert(deformation_temoin, t, values=deformation_t.get().reshape(shape), axis=0)
 
-    for e in range(len(equin_num)):
-        deformation_e = thr.apply_async(data_loading, args=(os.path.join(deformationDirectory, equin_num[e] + '_edge.nii.gz'),))
+    for e in range(len(equins)):
+        deformation_e = thr.apply_async(data_loading, args=(equins[e],))
         if e == 0:
             deformation_equin[0] = deformation_e.get().reshape(shape)
         else:
@@ -116,42 +172,46 @@ if __name__ == '__main__':
     thr.join()
     print('data loaded')
 
-    score = np.zeros((323, 323, 144))
-    result_path = os.path.join(out_path, 'results')
+    result_path = args.output
     if not os.path.isdir(result_path):
-        os.mkdir(result_path)
+        os.makedirs(result_path)
+
+    min_max_scaler = preprocessing.MinMaxScaler()
+
+    score = np.zeros(shape)
 
     for m in method:
-        detection_save_path = os.path.join(out_path, m)
-        if not os.path.isdir(detection_save_path):
-            os.mkdir(detection_save_path)
         if m == 'kpca':
-            p, p_t = detection_kpca(deformation_temoin, deformation_equin, equin_num, temoin_num, affine, detection_save_path)
+            p, p_t = detection_kpca(deformation_temoin, deformation_equin, arr_atlas)
         elif m == 't2':
-            p, p_t = detection_t2(deformation_temoin, deformation_equin, equin_num, temoin_num, arr_atlas, affine, detection_save_path)
+            p, p_t = detection_t2(deformation_temoin, deformation_equin, arr_atlas)
+        else:
+            p, p_t = detection_pca(deformation_temoin, deformation_equin, arr_atlas)
 
-        z = np.zeros((len(equin_num), 323, 323, 144))
-        for i in range(323):
-            for j in range(323):
-                for k in range(144):
+        z = np.zeros((len(equins), shape[0], shape[1], shape[2]))
+        for i in range(shape[0]):
+            for j in range(shape[1]):
+                for k in range(shape[2]):
                     if arr_atlas[i, j, k] == 0:
                         pass
                     else:
                         z[:, i, j, k] = stats.zmap(scores=p[:, i, j, k], compare=p_t[:, i, j, k])
         z = np.abs(z)
 
-        score_m = np.zeros((323, 323, 144))
-        for i in range(len(equin_num)):
-            img_generation(z[i], affine, os.path.join(detection_save_path, equin_num[i] + '_score_1.nii.gz'))
-            score_m = score_m + z[i]
-        min_max_scaler = preprocessing.MinMaxScaler()
-        score_m = min_max_scaler.fit_transform(score_m.reshape(-1, 1)).reshape(323, 323, 144)
-        score = score + score_m
+        score_m = np.zeros(shape)
 
+        score_m = min_max_scaler.fit_transform(score_m.reshape(-1, 1)).reshape(shape)
+        score = score + score_m
         img = nib.Nifti1Image(score_m, affine)
         nib.save(img, os.path.join(result_path, bone + '_score_' + m + '.nii.gz'))
 
+    score = score / 3
+    score = min_max_scaler.fit_transform(score.reshape(-1, 1)).reshape(shape)
     img = nib.Nifti1Image(score, affine)
     nib.save(img,
              os.path.join(result_path, bone + '_anomap.nii.gz'))
+
+
+
+
 

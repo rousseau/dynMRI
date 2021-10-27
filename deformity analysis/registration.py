@@ -1,17 +1,37 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+@author: CYY
+"""
+
 import os
+import glob
+import argparse
+import nibabel as nib
+import numpy as np
+from scipy.ndimage import gaussian_filter, distance_transform_cdt
 
 
-def antsRegistration(fixedImage, fixedMask, fixedDist, movingImage, movingMask, movingDist, outputPrefix_image):
+def generation_fuzzy_dist(file):
+    img = nib.load(file)
+    imdata = img.get_fdata().astype(float)
+    segbin = np.clip(imdata, 0, 1)
+    segfuz = gaussian_filter(segbin, 1)
+    nib.save(nib.Nifti1Image(segfuz, img.affine), file.split('.nii')[0] + '_fuzzy.nii.gz')
+
+    segdist = gaussian_filter(distance_transform_cdt(segbin), 1)
+    segdist = segdist * 1.0 / np.max(segdist)
+    nib.save(nib.Nifti1Image(segdist, img.affine), file.split('.nii')[0] + '_dist.nii.gz')
+
+
+def registration(fixedMask, fixedDist, movingMask, movingDist, outputPrefix_image):
     registration = 'antsRegistration -d 3 ' + \
-                   '-m CC[' + fixedImage + ',' + movingImage + ',1,4] ' + \
                    '-m MeanSquares[' + fixedMask + ',' + movingMask + ',1,0] ' + \
                    '-m MeanSquares[' + fixedDist + ',' + movingDist + ',1,0] ' + \
                    '-t Rigid[0.1] -f 6x4x2x1 -s 3x2x1x0 -c 100x100x70x20 ' + \
-                   '-m CC[' + fixedImage + ',' + movingImage + ',1,4] ' + \
                    '-m MeanSquares[' + fixedMask + ',' + movingMask + ',1,0] ' + \
                    '-m MeanSquares[' + fixedDist + ',' + movingDist + ',1,0] ' + \
                    '-t Affine[0.1] -f 6x4x2x1 -s 3x2x1x0 -c 100x100x70x20 ' + \
-                   '-m CC[' + fixedImage + ',' + movingImage + ',1,4] ' + \
                    '-m MeanSquares[' + fixedMask + ',' + movingMask + ',1,0] ' + \
                    '-m MeanSquares[' + fixedDist + ',' + movingDist + ',1,0] ' + \
                    '-t SyN[0.1] -f 6x4x2x1 -s 3x2x1x0 -c 100x100x70x20 -v 1 ' + \
@@ -19,39 +39,40 @@ def antsRegistration(fixedImage, fixedMask, fixedDist, movingImage, movingMask, 
 
     print(registration)
     os.system(registration)
-    registration_mask = 'antsApplyTransforms -d 3 -i ' + movingMask + ' -r ' + fixedMask + ' -o ' + outputPrefix_mask \
-                        + ' -t ' + outputPrefix_image + '1Warp.nii.gz -t ' + outputPrefix_image + '0GenericAffine.mat'
-    os.system(registration_mask)
 
 
 if __name__ == '__main__':
-    os.environ['ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS'] = '12'
-    dataDirectory = './exp_reso05_seg_unet'
+    parser = argparse.ArgumentParser(description='Texture plugger')
+    parser.add_argument('-n', '--thread', help='number of thread for calculation', type=str, required=False, default='12')
+    parser.add_argument('-t', '--td', help='path to TD segmention files', type=str, required=False, default='./data/td')
+    parser.add_argument('-c', '--cp', help='path to CP segmention files', type=str, required=False, default='./data/cp')
+    parser.add_argument('-ot', '--output_td', help='path to output files of TD', type=str, required=False, default='./td_warp')
+    parser.add_argument('-oc', '--output_cp', help='path to output files of CP', type=str, required=False, default='./td_warp')
 
-    fixedImage = './atlas_unet3template0.nii.gz'
+    args = parser.parse_args()
+    os.environ['ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS'] = args.thread
+    td_path = args.td
+    cp_path = args.cp
+    output_td = args.output_td
+    output_cp = args.output_cp
+
     fixedMask = './atlas_unet3template1.nii.gz'
     fixedDist = './atlas_unet3template2.nii.gz'
 
-    moving_type = 'subjects'  # 'subjects' or 'atlas'
-
-    if moving_type == 'atlas':
-        movingImage = './atlas_equin_unet3template0.nii.gz'
-        movingMask = './atlas_equin_unet3template1.nii.gz'
-        movingDist = './atlas_equin_unet3template2.nii.gz'
-        outputPrefix_image = './registration_atlas_to_atlas/atlas_equins_'
-        antsRegistration(fixedImage, fixedMask, fixedDist, movingImage, movingMask, movingDist, outputPrefix_image)
-
-    else:
-        outputDirectory = './registration_equins_to_atlas'
-        movs = ['E01', 'E02', 'E03', 'E05', 'E06', 'E08', 'E09', 'E10', 'E11', 'E13']
-        for i in range(len(movs)):
-            print(movs[i])
-            movingImage = os.path.join(dataDirectory, 'sub_' + movs[i] + '_static_3DT1_flirt.nii.gz')
-            movingMask = os.path.join(dataDirectory, 'sub_' + movs[i] + '_static_3DT1_flirt_fuzzy.nii.gz')
-            movingDist = os.path.join(dataDirectory, 'sub_' + movs[i] + '_static_3DT1_flirt_dist.nii.gz')
-            outputPrefix_image = os.path.join(outputDirectory, 'sub_' + movs[i] + '_on_atlas_')
-            outputPrefix_mask = os.path.join(outputDirectory, 'sub_' + movs[i] + '_on_atlas_segment.nii.gz')
-            antsRegistration(fixedImage, fixedMask, fixedDist, movingImage, movingMask, movingDist, outputPrefix_image)
+    temoins = glob.glob(os.path.join(td_path, '*_seg.nii.gz'))
+    equins = glob.glob(os.path.join(cp_path, '*_seg.nii.gz'))
+    for t in temoins:
+        generation_fuzzy_dist(t)
+        movingMask = t.split('.nii')[0] + '_fuzzy.nii.gz'
+        movingDist = t.split('.nii')[0] + '_dist.nii.gz'
+        outputPrefix = os.path.join(output_td, t.rsplit('/', 1)[1].split('seg')[0])
+        registration(fixedMask, fixedDist, movingMask, movingDist, outputPrefix)
+    for e in equins:
+        generation_fuzzy_dist(e)
+        movingMask = e.split('.nii')[0] + '_fuzzy.nii.gz'
+        movingDist = e.split('.nii')[0] + '_dist.nii.gz'
+        outputPrefix = os.path.join(output_cp, e.rsplit('/', 1)[1].split('seg')[0])
+        registration(fixedMask, fixedDist, movingMask, movingDist, outputPrefix)
 
 
 
