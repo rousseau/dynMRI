@@ -76,8 +76,6 @@ If this sub-repository helps you, please cite our work using the following BibTe
 This is a tool to analyse ankle bone shape difference between typically developping children (TD) and children with cerebral palsy (CP) using 3D MRI.  
 Main contributor: Yue Cheng
 
-![avatar](deformity_analysis/doc/pipeline.png)
-
 ### Constructed bone shape template
 You can fine the TD ankle joint template and the label of bones of interest in `.\deformity_analysis`, named `template_img.nii.gz` and `template_label.nii.gz`  
 Also, the shape templates of calcaneus, talus and tibia are provided both in NIFTI and 3D mesh files, named as `bone.nii.gz` or `bone.stl` respectively
