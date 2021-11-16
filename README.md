@@ -72,8 +72,8 @@ If this sub-repository helps you, please cite our work using the following BibTe
 }
 ```
 
-## Bone Deformity Analysis
-This is a tool to analyse ankle bone shape difference between typically developping children (TD) and children with cerebral palsy (CP) using 3D MRI.  
+## Bone Shape Analysis
+This is a tool to analyse ankle bone shape differences between typically developping children (TD) and children with cerebral palsy (CP) using 3D MRI.  
 Main contributor: Yue Cheng
 
 ### Constructed bone shape template
@@ -88,7 +88,7 @@ pip install deformity_analysis/requirements.txt
 ```
 
 ### How to Run
-To perform the registration, you can run like this:
+To perform the registration, you can run the code like this:
 ```
 python deformity_analysis/registration.py \ 
   -n <number-of-thread> \
