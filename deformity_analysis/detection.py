@@ -9,11 +9,10 @@ import glob
 import argparse
 import numpy as np
 import nibabel as nib
-from scipy import stats
 from multiprocessing import Pool
-from sklearn import preprocessing
-from sklearn.decomposition import PCA, KernelPCA
-from pyanom.outlier_detection import HotelingT2
+from sklearn.decomposition import KernelPCA
+from scipy.stats import f, zmap, norm, combine_pvalues
+from statsmodels.stats.multitest import multipletests
 from skimage.morphology import binary_dilation, ball
 
 
@@ -36,58 +35,35 @@ def dilation(img_arr):
 
 
 def detection_t2(temoins, equins, arr_atlas):
-    p = np.zeros((equins.shape[0], 323, 323, 144, 3), dtype=float)
-    p_t = np.zeros((temoins.shape[0], 323, 323, 144, 3), dtype=float)
     print('Starting Hotelling\'s T2 test')
+    n_t = temoins.shape[0]
+    n_e = equins.shape[0]
+    p_e = np.ones((n_e, shape[0], shape[1], shape[2]), dtype=float)
+    p_t = np.ones((n_t, shape[0], shape[1], shape[2]), dtype=float)
 
-    for i in range(323):
-        for j in range(323):
-            for k in range(144):
+    for i in range(shape[0]):
+        for j in range(shape[1]):
+            for k in range(shape[2]):
                 if arr_atlas[i, j, k] == 0:
                     pass
                 else:
-                    for m in range(3):
-                        model = HotelingT2()
-                        model.fit((temoins[:, i, j, k, m].reshape(-1, 1)))
-                        temoin_score = model.score(temoins[:, i, j, k, m].reshape(-1, 1))
-                        p_t[:, i, j, k, m] = temoin_score.reshape(temoins.shape[0], )
-                        anomaly_score = model.score(equins[:, i, j, k, m].reshape(-1, 1))
-                        p[:, i, j, k, m] = anomaly_score.reshape(equins.shape[0], )
-    p = np.mean(p, axis=4)
-    p_t = np.mean(p_t, axis=4)
+                    mean_t = np.mean(temoins[:, i, j, k], axis=0)
+                    cov_t = np.cov(temoins[:, i, j, k], rowvar=False)
+                    cov_t_inv = np.linalg.pinv(cov_t)
+
+                    for m in range(n_e):
+                        t2 = np.transpose((equins[m, i, j, k] - mean_t)) @ cov_t_inv @ (equins[m, i, j, k] - mean_t)
+                        f_stat = (n_t-3)/(3*(n_t-1)) * t2
+                        p_e[m, i, j, k] = f.pdf(f_stat, 3, n_t - 3)
+
+                    for n in range(n_t):
+                        t2 = np.transpose((temoins[n, i, j, k] - mean_t)) @ cov_t_inv @ (
+                                temoins[n, i, j, k] - mean_t)
+                        f_stat = (n_t-3)/(3*(n_t-1)) * t2
+                        p_t[n, i, j, k] = f.pdf(f_stat, 3, n_t - 3)
 
     print('Hotelling\'s T2 test finished')
-    return p, p_t
-
-
-def detection_pca(temoins, equins, arr_atlas):
-    print('Starting PCA')
-
-    temoins_edge = temoins[:, arr_atlas != 0]
-    equins_edge = equins[:, arr_atlas != 0]
-
-    pca = PCA().fit(temoins_edge.reshape(temoins_edge.shape[0], temoins_edge.shape[1] * 3))
-
-    decomp_t = pca.transform(temoins_edge.reshape(temoins_edge.shape[0], temoins_edge.shape[1] * 3))
-    recons_t = pca.inverse_transform(decomp_t).reshape(temoins_edge.shape[0], temoins_edge.shape[1], 3)
-    p_t = np.power((recons_t - temoins_edge), 2)
-    p_t = np.mean(p_t, axis=2)
-    reconstruction_t = np.zeros((temoins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2], 3))
-    reconstruction_t[:, arr_atlas != 0] = recons_t
-    detection_t = np.zeros((temoins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2]))
-    detection_t[:, arr_atlas != 0] = p_t
-
-    decomp_e = pca.transform(equins_edge.reshape(equins_edge.shape[0], equins_edge.shape[1] * 3))
-    recons_e = pca.inverse_transform(decomp_e).reshape(equins_edge.shape[0], equins_edge.shape[1], 3)
-    p = np.power((recons_e - equins_edge), 2)
-    p = np.mean(p, axis=2)
-    reconstruction_e = np.zeros((equins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2], 3))
-    reconstruction_e[:, arr_atlas != 0] = recons_e
-    detection_e = np.zeros((equins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2]))
-    detection_e[:, arr_atlas != 0] = p
-
-    print('PCA finished')
-    return detection_e, detection_t
+    return p_e
 
 
 def detection_kpca(temoins, equins, arr_atlas):
@@ -102,23 +78,20 @@ def detection_kpca(temoins, equins, arr_atlas):
     decomp_t = kpca.transform(temoins_edge.reshape(temoins_edge.shape[0], temoins_edge.shape[1] * 3))
     recons_t = kpca.inverse_transform(decomp_t).reshape(temoins_edge.shape[0], temoins_edge.shape[1], 3)
     p_t = np.power((recons_t - temoins_edge), 2)
-    p_t = np.mean(p_t, axis=2)
-    reconstruction_t = np.zeros((temoins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2], 3))
-    reconstruction_t[:, arr_atlas != 0] = recons_t
-    detection_t = np.zeros((temoins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2]))
-    detection_t[:, arr_atlas != 0] = p_t
+    p_t = np.linalg.norm(p_t, axis=2)
 
     decomp_e = kpca.transform(equins_edge.reshape(equins_edge.shape[0], equins_edge.shape[1] * 3))
     recons_e = kpca.inverse_transform(decomp_e).reshape(equins_edge.shape[0], equins_edge.shape[1], 3)
     p = np.power((recons_e - equins_edge), 2)
-    p = np.mean(p, axis=2)
-    reconstruction_e = np.zeros((equins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2], 3))
-    reconstruction_e[:, arr_atlas != 0] = recons_e
-    detection_e = np.zeros((equins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2]))
-    detection_e[:, arr_atlas != 0] = p
+    p = np.linalg.norm(p, axis=2)
+
+    z = zmap(scores=p, compare=p_t)
+    p_e = norm.pdf(z)
+    detection_e = np.ones((equins.shape[0], arr_atlas.shape[0], arr_atlas.shape[1], arr_atlas.shape[2]))
+    detection_e[:, arr_atlas != 0] = p_e
 
     print('KPCA finished')
-    return detection_e, detection_t
+    return detection_e
 
 
 if __name__ == '__main__':
@@ -131,7 +104,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     bone = args.bone
-    method = ['t2', 'kpca', 'pca']
     def_td = args.td
     def_cp = args.cp
 
@@ -176,40 +148,41 @@ if __name__ == '__main__':
     if not os.path.isdir(result_path):
         os.makedirs(result_path)
 
-    min_max_scaler = preprocessing.MinMaxScaler()
+    # score_kpca = np.ones((deformation_equin.shape[0], shape[0], shape[1], shape[2]))
+    # score_t2 = np.ones((deformation_equin.shape[0], shape[0], shape[1], shape[2]))
+    score = np.ones((deformation_equin.shape[0], shape[0], shape[1], shape[2]))
+    confidence = np.zeros((deformation_equin.shape[0], shape[0], shape[1], shape[2]))
 
-    score = np.zeros(shape)
+    score_kpca = detection_kpca(deformation_temoin, deformation_equin, arr_atlas)
+    score_t2 = detection_t2(deformation_temoin, deformation_equin, arr_atlas)
 
-    for m in method:
-        if m == 'kpca':
-            p, p_t = detection_kpca(deformation_temoin, deformation_equin, arr_atlas)
-        elif m == 't2':
-            p, p_t = detection_t2(deformation_temoin, deformation_equin, arr_atlas)
-        else:
-            p, p_t = detection_pca(deformation_temoin, deformation_equin, arr_atlas)
-
-        z = np.zeros((len(equins), shape[0], shape[1], shape[2]))
+    for n in range(deformation_equin.shape[0]):
         for i in range(shape[0]):
             for j in range(shape[1]):
                 for k in range(shape[2]):
-                    if arr_atlas[i, j, k] == 0:
-                        pass
-                    else:
-                        z[:, i, j, k] = stats.zmap(scores=p[:, i, j, k], compare=p_t[:, i, j, k])
-        z = np.abs(z)
+                    _, score[n, i, j, k] = combine_pvalues(np.array([score_kpca[n, i, j, k], score_t2[n, i, j, k]]))
+        _, score[n, arr_atlas != 0], _, _ = multipletests(score[n, arr_atlas != 0].flatten())
+        confidence[n] = np.ones((shape[0], shape[1], shape[2])) - score[n]
 
-        score_m = np.zeros(shape)
+    score_kpca = np.mean(score_kpca, axis=0)
+    img = nib.Nifti1Image(score_kpca, affine)
+    nib.save(img,
+             os.path.join(result_path, bone + '_kpca_mean.nii.gz'))
 
-        score_m = min_max_scaler.fit_transform(score_m.reshape(-1, 1)).reshape(shape)
-        score = score + score_m
-        img = nib.Nifti1Image(score_m, affine)
-        nib.save(img, os.path.join(result_path, bone + '_' + m + '.nii.gz'))
+    score_t2 = np.mean(score_t2, axis=0)
+    img = nib.Nifti1Image(score_t2, affine)
+    nib.save(img,
+             os.path.join(result_path, bone + '_t2_mean.nii.gz'))
 
-    score = score / 3
-    score = min_max_scaler.fit_transform(score.reshape(-1, 1)).reshape(shape)
+    score = np.mean(score, axis=0)
     img = nib.Nifti1Image(score, affine)
     nib.save(img,
-             os.path.join(result_path, bone + '_anomap.nii.gz'))
+             os.path.join(result_path, bone + '_anomap_p.nii.gz'))
+
+    confidence = np.mean(confidence, axis=0)
+    img = nib.Nifti1Image(confidence, affine)
+    nib.save(img,
+             os.path.join(result_path, bone + '_anomap_confidence.nii.gz'))
 
 
 
