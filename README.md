@@ -72,13 +72,13 @@ If this sub-repository helps you, please cite our work using the following BibTe
 }
 ```
 
-## Bone Deformity Analysis
-This is a tool to analyse ankle bone shape difference between typically developping children (TD) and children with cerebral palsy (CP) using 3D MRI.  
+## Bone Shape Analysis
+This is a tool to analyse ankle bone shape differences between typically developping children (TD) and children with cerebral palsy (CP) using 3D MRI.  
 Main contributor: Yue Cheng
 
 ### Constructed bone shape template
-You can fine the TD ankle joint template and the label of bones of interest in `.\deformity_analysis`, named `template_img.nii.gz` and `template_label.nii.gz`  
-Also, the shape templates of calcaneus, talus and tibia are provided both in NIFTI and 3D mesh files, named as `bone.nii.gz` or `bone.stl` respectively
+You can find the TD ankle joint template and the label of bones of interest in `.\deformity_analysis`, named `template_img.nii.gz` and `template_label.nii.gz`  
+Also, the shape templates of calcaneus, talus and tibia are provided both in NIFTI and 3D mesh files, named as `bone.nii.gz` or `bone.stl` respectively.
 
 ### Requirements
 * For template estimation and subject-to-template registration: **ANTs** (http://stnava.github.io/ANTs/)
@@ -88,7 +88,7 @@ pip install deformity_analysis/requirements.txt
 ```
 
 ### How to Run
-To perform the registration, you can run like this:
+To perform the registration, you can run the code like this:
 ```
 python deformity_analysis/registration.py \ 
   -n <number-of-thread> \
