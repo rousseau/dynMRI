@@ -30,7 +30,7 @@ def img_generation(array, affine, save_path):
 def dilation(img_arr):
     img_arr[img_arr != 0] = 1
     kernel = ball(10)
-    img_arr_dilated = binary_dilation(img_arr, kernel).astype(img.get_data_dtype())
+    img_arr_dilated = binary_dilation(img_arr, kernel).astype(img_arr.get_data_dtype())
     return img_arr_dilated
 
 
