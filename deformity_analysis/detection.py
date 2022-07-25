@@ -96,7 +96,7 @@ def detection_kpca(temoins, equins, arr_atlas):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Texture plugger')
-    parser.add_argument('-b', '--bone', help='bone to analysis', type=str, required=True, default='calcaneus')
+    parser.add_argument('-b', '--bone', help='input bone image to analysis', type=str, required=True, default='calcaneus.nii.gz')
     parser.add_argument('-t', '--td', help='path to TD subjects\' Warp files', type=str, required=True, default='./td_warp')
     parser.add_argument('-c', '--cp', help='path to CP subjects\' Warp files', type=str, required=True, default='./cp_warp')
     parser.add_argument('-o', '--output', help='path to output files', type=str, required=False, default='./results')
@@ -107,8 +107,8 @@ if __name__ == '__main__':
     def_td = args.td
     def_cp = args.cp
 
-    atlas = './' + bone + '.nii.gz'
-    img_atlas = nib.load(atlas)
+    #atlas = './' + bone + '.nii.gz'
+    img_atlas = nib.load(bone)
     affine = img_atlas.affine
     arr_atlas = img_atlas.get_fdata()
     arr_atlas = dilation(arr_atlas)
