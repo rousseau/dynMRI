@@ -33,7 +33,6 @@ def dilation(img_arr):
     img_arr_dilated = binary_dilation(img_arr, kernel).astype(float)
     return img_arr_dilated
 
-
 def detection_t2(temoins, equins, arr_atlas):
     print('Starting Hotelling\'s T2 test')
     n_t = temoins.shape[0]
@@ -108,7 +107,7 @@ if __name__ == '__main__':
     def_cp = args.cp
 
     #atlas = './' + bone + '.nii.gz'
-    print('loading atlas')
+    print('loading atlas: '+bone)
     img_atlas = nib.load(bone)
     affine = img_atlas.affine
     arr_atlas = img_atlas.get_fdata()
@@ -167,8 +166,6 @@ if __name__ == '__main__':
     if not os.path.isdir(result_path):
         os.makedirs(result_path)
 
-    # score_kpca = np.ones((deformation_equin.shape[0], shape[0], shape[1], shape[2]))
-    # score_t2 = np.ones((deformation_equin.shape[0], shape[0], shape[1], shape[2]))
     score = np.ones((deformation_equin.shape[0], shape[0], shape[1], shape[2]))
     confidence = np.zeros((deformation_equin.shape[0], shape[0], shape[1], shape[2]))
 
