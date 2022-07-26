@@ -108,25 +108,43 @@ if __name__ == '__main__':
     def_cp = args.cp
 
     #atlas = './' + bone + '.nii.gz'
+    print('loading atlas')
     img_atlas = nib.load(bone)
     affine = img_atlas.affine
     arr_atlas = img_atlas.get_fdata()
+    print('atlas dilation')
     arr_atlas = dilation(arr_atlas)
+
     shape = arr_atlas.shape
-
     warp_shape = (shape[0], shape[1], shape[2], 3)
+    print('warp shape:'+str(warp_shape))
 
+    print('get list of warp files')
+    temoins = glob.glob(os.path.join(def_td, '*1Warp.nii.gz'))
+    equins = glob.glob(os.path.join(def_cp, '*1Warp.nii.gz'))
+
+    deformation_temoin = np.zeros((len(temoins), shape[0], shape[1], shape[2], 3))
+    deformation_equin = np.zeros((len(equins), shape[0], shape[1], shape[2], 3))
+
+    print('loading files')
+    for t in range(len(temoins)):
+      print(temoins[t])  
+      deformation_temoin[t] = np.squeeze(nib.load(temoins[t]).get_fdata().astype(float))  
+  
+    for e in range(len(equins)):
+      print(equins[e])  
+      deformation_equin[e] = np.squeeze(nib.load(equins[e]).get_fdata().astype(float))
+
+    """
     deformation_temoin = np.zeros(warp_shape, dtype=float)
     deformation_temoin = deformation_temoin[np.newaxis, :]
 
     deformation_equin = np.zeros(warp_shape, dtype=float)
     deformation_equin = deformation_equin[np.newaxis, :]
 
-    temoins = glob.glob(os.path.join(def_td, '*1Warp.nii.gz'))
-    equins = glob.glob(os.path.join(def_cp, '*1Warp.nii.gz'))
-
     thr = Pool(processes=5)
     for t in range(len(temoins)):
+        print(temoins[t])
         deformation_t = thr.apply_async(data_loading, args=(temoins[t],))
         if t == 0:
             deformation_temoin[0] = deformation_t.get().reshape(shape)
@@ -143,6 +161,7 @@ if __name__ == '__main__':
     thr.close()
     thr.join()
     print('data loaded')
+    """
 
     result_path = args.output
     if not os.path.isdir(result_path):
