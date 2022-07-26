@@ -172,6 +172,7 @@ if __name__ == '__main__':
     score_kpca = detection_kpca(deformation_temoin, deformation_equin, arr_atlas)
     score_t2 = detection_t2(deformation_temoin, deformation_equin, arr_atlas)
 
+    print('combining pvalues')
     for n in range(deformation_equin.shape[0]):
         for i in range(shape[0]):
             for j in range(shape[1]):
