@@ -6,8 +6,48 @@ from skimage import morphology
 from scipy.ndimage import gaussian_filter
 from multiprocessing import Pool
 import sys
+import argparse
+from os.path import expanduser
+home = expanduser("~")
 
 fslcc = '/usr/local/fsl/bin/fslcc'
+flirt = '/usr/local/fsl/bin/flirt'
+
+def extract_volumes(args):
+    if args.subjects is None:
+        subjects = os.listdir(args.derivatives_dir)
+    else:
+        subjects = args.subjects
+    
+    for i in range(len(subjects)):
+        videos=os.listdir(os.path.join(args.source_dir, subjects[i]))
+        for j in range(len(videos)):
+            if videos[j].split('_')[2]=='dynamic' and videos[j].split('_')[3]=='MovieClear':
+                V=nib.load(os.path.join(args.source_dir, subjects[i], videos[j]))
+                affine = V.get_sform()
+
+                path = os.path.join(args.result_dir, subjects[i])
+                print(path)
+                if not os.path.exists(path):
+                    os.mkdir(path)
+                path = os.path.join(path, 'volumes')
+                if not os.path.exists(path):
+                    os.mkdir(path)
+                path = os.path.join(path, videos[j][:-7])
+                if not os.path.exists(path):
+                    os.mkdir(path)
+                path = os.path.join(path, "volumes3D")
+                if not os.path.exists(path):
+                    os.mkdir(path)
+
+                data=V.get_fdata()
+                size=data.shape
+                for k in range(size[3]):
+                    volume=data[:,:,:,k]
+                    volume=nib.Nifti1Image(volume, affine)
+                    nib.save(volume, os.path.join(path, videos[j][:-7]+"_vol"+str(k).rjust(4,'0')+".nii.gz"))
+    
+
 
 def dilation(file_in, file_dilated, r):
     img = nib.load(file_in)
@@ -27,54 +67,52 @@ def blurring(file_in, file_blurred):
     nib.save(img_blurred, file_blurred)
 
 
-def controlequalite(registration,dyn,ind):
+def qualitycontrol(registration,dyn,ind):
     command = "{} {} {}".format(fslcc,registration,dyn)
     ind=0
     corr = subprocess.check_output(command, shell=True)
-    #corr=str(corr)
     corr.replace(b" ",b"")
     corr.replace(b"  ",b"")
     l = corr.split(b'\n')
     if len(l[0])==0:
-        print('IMAGE RECALEE EGALE A ZERO')
+        print('REGISTERED IMAGE IS EQUAL TO 0')
         return False
     else:
         val = float(l[ind][8:12])
-        #print('\t \t '+str(val))
         if (val>=0.62):
-            print('\t \t Test qualité OK. Coefficient de corrélation = ', str(val))
+            print('\t \t Quality test: OK. Cross correlation = ', str(val))
             return True
         else:
-            print('\t \t Test qualité insuffisant. Coefficient de corrélation = ', str(val))
+            print('\t \t Quality test: insufficient. Cross correlation = ', str(val))
             return False
 
 
-def registration(static_directory, segment_directory, result_directory, dynamic_directory, subjects):
-    print('')
+def registration(args):
     print('REGISTRATION')
-    flirt = '/usr/local/fsl/bin/flirt'
 
-    #sujets = os.listdir(segment_directory)
-    #sujets=['sub_E01','sub_E02','sub_E05','sub_E08']
-    
-    if subjects is None:
+    static_directory = args.source_dir
+    segment_directory = args.derivatives_dir
+    result_directory = args.result_dir
+    dynamic_directory = args.derivatives_dir
+        
+    if args.subjects is None:
         sujets = os.listdir(segment_directory)
     else:
-        sujets = subjects
+        sujets = args.subjects
 
     for i in range(len(sujets)):
         if (sujets[i]!='sub_E11' and sujets[i]!='sub_E12' and sujets[i]!='sub_E04' and sujets[i]!='sub_E07'):# and sujets[i]!='sub_E13' and sujets[i]!='sub_E09'):# and sujets[i]!='sub_T10' and sujets[i]!='sub_T11'):
             print('******************************************************************************')
-            print('SUJET : '+sujets[i])
+            print('SUBJECT : '+sujets[i])
         	
-            #recupere irm statique
+            # Get static MRI
             suffixe = '_static_3DT1'
             if os.path.exists(os.path.join(static_directory, sujets[i],sujets[i]+suffixe+'_flipCorrected.nii.gz')):
                 file_in = os.path.join(static_directory, sujets[i],sujets[i]+suffixe+'_flipCorrected.nii.gz')
             else:
                 file_in = os.path.join(static_directory, sujets[i], sujets[i]+suffixe + '.nii.gz')
         	
-            #recupere segmentations
+            # Get static segmentations
             suffixe = sujets[i] + '_static_3DT1_segment_calcaneus'
             if os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_flipped_binarized.nii.gz')):
                 file_segment_calcaneus = os.path.join(segment_directory, sujets[i],suffixe+'_flipped_binarized.nii.gz')
@@ -117,27 +155,26 @@ def registration(static_directory, segment_directory, result_directory, dynamic_
             else:
                 file_segment_tibia = os.path.join(segment_directory, sujets[i], sujets[i]+'_static_3DT1_segment_smooth_tibia.nii.gz')
         	
-            #cree le repertoire des resultats du registration
+            # Create the registration results directory
             if not os.path.exists(os.path.join(result_directory,sujets[i])):
                 os.mkdir(os.path.join(result_directory,sujets[i]))
         
             
-            #images = os.listdir(os.path.join(static_directory, sujets[i]))
             images=os.listdir(os.path.join(dynamic_directory,sujets[i], 'volumes'))
 
             for j in range(len(images)):
-                #recupere les irms dynamiques MovieClear
+                # Get dynamic MRI "MovieClear"
                 if images[j].find('MovieClear')!=-1 and not(sujets[i]=='sub_E03' and images[j].find('10')!=-1):
                     if not(sujets[i]=='sub_T01' and images[j].find('flipCorrected')==-1):
                         print('*Vidéo : '+str(images[j]))
         
-                        #cree les sous-repertoires necessaires pour les registrations
+                        # Create subdirectories for registrations
                         if not os.path.exists(os.path.join(result_directory,sujets[i], 'registrations')):
                             os.mkdir(os.path.join(result_directory,sujets[i], 'registrations'))
                         if not os.path.exists(os.path.join(result_directory,sujets[i], 'registrations', images[j].replace('.nii.gz',''))):
                             os.mkdir(os.path.join(result_directory,sujets[i], 'registrations',images[j].replace('.nii.gz','')))
                 
-                        #registration statique sur dynamique
+                        # Registration of static MRI on dynamic MRI
                         volumes = os.listdir(os.path.join(dynamic_directory,sujets[i], 'volumes', images[j].replace('.nii.gz',''), 'volumes3D'))
 
                         for k in range(len(volumes)):
@@ -156,16 +193,13 @@ def registration(static_directory, segment_directory, result_directory, dynamic_
                                         os.path.join(recording_directory,volumes[k].replace('.nii.gz','')+'_registration.mat'))
                                 os.system(command)
         
-                            #Controle qualite registration
+                            # Registration quality control
                             registration = os.path.join(recording_directory,volumes[k].replace('.nii.gz','')+'_registration.nii.gz')
-                            if(controlequalite(registration,file_ref,k)):
+                            if(qualitycontrol(registration,file_ref,k)):
                                 for bone in ['calcaneus', 'talus', 'tibia']:
-                                    #registration du calcaneus
-                                    # bone = 'calcaneus'
-                                    ##masks = os.listdir(os.path.join(working_directory,'data_025_8','segmentation', sujets[i],bone+'_dilated','blurred'))
+
+                                    # Registration bone-to-bone
                                     masks = os.listdir(os.path.join(segment_directory, sujets[i], 'segment', bone+'_dilated', 'blurred'))
-                                    # #masks=[m for m in masks if (m.find(bone)!=-1 and m.find(sujets[i])!=-1)]
-                                    # #print(masks)
                                     for blurred in masks:
                                         if bone == 'calcaneus':
                                             if 'r1' in blurred:
@@ -187,7 +221,7 @@ def registration(static_directory, segment_directory, result_directory, dynamic_
                                                 os.path.join(recording_directory,volumes[k].replace('.nii.gz','')+'_registration.mat'))
                                         os.system(command)
                                         
-                                    #registration segmentation
+                                    # Registration static segmentation
                                     if os.path.exists(os.path.join(result_directory,sujets[i],images[j],volumes[k].replace('.nii.gz','')+'_registration_segment_'+bone+'.nii.gz')):
                                         pass
                                     else:
@@ -206,10 +240,13 @@ def registration(static_directory, segment_directory, result_directory, dynamic_
 
         				
 
-def blur_static(subjects):
+
+
+def blur_static(args):
     print('DILATATION + BLURRING')
-    home='/home/claire/Equinus_BIDS_dataset/derivatives/'
-    recording_path='/home/claire/Test_run_recalage/'
+
+    recording_path=args.result_dir
+    segment_directory = args.derivatives_dir
     number_os=0
     
     while(number_os<3):
@@ -220,24 +257,36 @@ def blur_static(subjects):
         elif(number_os==2):
             bone='tibia'
 
-        #sujets = os.listdir(home)
-        if subjects is None:
-            sujets = os.listdir(home)
+        if args.subjects is None:
+            subjects = os.listdir(segment_directory)
         else:
-            sujets = subjects
+            subjects = args.subjects
     
-        for i in range(len(sujets)):
-            print(sujets[i])
-            suffixe = sujets[i] + '_static_3DT1_segment_smooth_' + bone
-            
-            file_dilated_path = os.path.join(recording_path, sujets[i])
+        for i in range(len(subjects)):
+            print(subjects[i])
+
+            suffixe = subjects[i] + '_static_3DT1_segment_' + bone
+            if os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_flipped_binarized.nii.gz')):
+                seg = os.path.join(segment_directory, subjects[i],suffixe+'_flipped_binarized.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_binarized_flipCorrected.nii.gz')):
+                seg = os.path.join(segment_directory, subjects[i],suffixe+'_binarized_flipCorrected.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_flipCorrected.nii.gz')):
+                seg = os.path.join(segment_directory, subjects[i],suffixe+'_flipCorrected.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_binarized.nii.gz')):
+                seg = os.path.join(segment_directory, subjects[i],suffixe+'_binarized.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe + '.nii.gz')):
+                seg = os.path.join(segment_directory, subjects[i], suffixe + '.nii.gz')
+            else:
+                seg = os.path.join(segment_directory, subjects[i], subjects[i]+'_static_3DT1_segment_smooth_calcaneus.nii.gz')
+
+
+            file_dilated_path = os.path.join(recording_path, subjects[i])
             if not os.path.isdir(file_dilated_path):
                 os.mkdir(file_dilated_path)
             file_dilated_path = os.path.join(file_dilated_path, 'segment')
             if not os.path.isdir(file_dilated_path):
                 os.mkdir(file_dilated_path)
             file_dilated_path = os.path.join(file_dilated_path, bone + '_dilated')
-            print(file_dilated_path)
             if not os.path.isdir(file_dilated_path):
                 os.mkdir(file_dilated_path)
             
@@ -248,13 +297,13 @@ def blur_static(subjects):
             if not os.path.isdir(file_blurred_path):
                 os.mkdir(file_blurred_path)
 
-            seg=os.path.join(home, sujets[i], suffixe+'.nii.gz')
+            
         
             if os.path.exists(seg):
                 print(seg)
 
                 for r in range(radius_min, radius_max+1):
-                    prefix = suffixe +'_segment_' + bone + '_static_dilated_r' + str(r)               
+                    prefix = suffixe + '_static_dilated_r' + str(r)               
                     
                     file_dilated = os.path.join(file_dilated_path, prefix + '.nii.gz')
                     if os.path.exists(file_dilated):
@@ -270,27 +319,32 @@ def blur_static(subjects):
                         blurring(file_dilated, file_blurred)
                         print(file_blurred)
             else:
-                print('Fichier '+suffixe+'.nii.gz introuvable')    
+                print('File '+suffixe+'.nii.gz not found')    
         number_os+=1
 
 
 
 if __name__ == '__main__':
-    # working_directory='/home/claire/Test_recalage'
-    # static_directory = os.path.join(working_directory,'HR/256')
-    # segment_directory = os.path.join(working_directory,'static_segmentations/256')
-    # result_directory= os.path.join(working_directory, 'registration_HR-BR')
-    # dynamic_directory= os.path.join(working_directory, 'LR')
-    working_directory='/home/claire'
-    static_directory = os.path.join(working_directory,'Equinus_BIDS_dataset/sourcedata')
-    segment_directory = os.path.join(working_directory,'Equinus_BIDS_dataset/derivatives')
-    result_directory= os.path.join(working_directory, 'Test_run_recalage')
-    dynamic_directory= os.path.join(working_directory, 'Equinus_BIDS_dataset/derivatives')
-    subjects = ['sub_E01']
+    '''
+        Required:
+            - "sourcedata" directory: contains all sourcedata per subject
+            - "derivatives" directory: contains ankle joint bones segmentations for dynamic MRI
+    '''
 
-    blur_static(subjects)
-    registration(static_directory, segment_directory, result_directory, dynamic_directory, subjects)
+    parser = argparse.ArgumentParser(description='HR image degradation')
+    parser.add_argument('--source_dir', help='Path to static directory', type=str, required=False, default=os.path.join(home, 'Equinus_BIDS_dataset', 'sourcedata'))
+    parser.add_argument('--derivatives_dir', help='Path to derivative directory', type=str, required=False, default=os.path.join(home, "Equinus_BIDS_dataset","derivatives"))
+    parser.add_argument('--result_dir', help="Path to save directory", type=str, required=False, default=os.path.join(home, "Equinus_BIDS_dataset","derivatives"))
+    parser.add_argument('--subjects', help='Subject(s) to register (ex: sub_E01 sub_T10). Default = all accessible subjects', nargs='+', type=str, required=False, default=None)
+    args = parser.parse_args()
 
+    print('*** ARGUMENTS ***')
+    print('{:>25}: {}'.format("Static directory", args.source_dir))
+    print('{:>25}: {}'.format("Derivatives directory", args.derivatives_dir))
+    print('{:>25}: {}'.format("Result directory", args.result_dir))
+    print('{:>25}: {}{}\n'.format("Subjects", str(args.subjects), " (if None: use all accessible subjects)"))
+    print('*****************')
 
-
-
+    blur_static(args)
+    extract_volumes(args)
+    registration(args)
