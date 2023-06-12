@@ -96,93 +96,93 @@ def registration(args):
     dynamic_directory = args.derivatives_dir
         
     if args.subjects is None:
-        sujets = os.listdir(segment_directory)
+        subjects = os.listdir(segment_directory)
     else:
-        sujets = args.subjects
+        subjects = args.subjects
 
-    for i in range(len(sujets)):
-        if (sujets[i]!='sub_E11' and sujets[i]!='sub_E12' and sujets[i]!='sub_E04' and sujets[i]!='sub_E07'):# and sujets[i]!='sub_E13' and sujets[i]!='sub_E09'):# and sujets[i]!='sub_T10' and sujets[i]!='sub_T11'):
+    for i in range(len(subjects)):
+        if (subjects[i]!='sub_E11' and subjects[i]!='sub_E12' and subjects[i]!='sub_E04' and subjects[i]!='sub_E07'):# and subjects[i]!='sub_E13' and subjects[i]!='sub_E09'):# and subjects[i]!='sub_T10' and subjects[i]!='sub_T11'):
             print('******************************************************************************')
-            print('SUBJECT : '+sujets[i])
+            print('SUBJECT : '+subjects[i])
         	
             # Get static MRI
             suffixe = '_static_3DT1'
-            if os.path.exists(os.path.join(static_directory, sujets[i],sujets[i]+suffixe+'_flipCorrected.nii.gz')):
-                file_in = os.path.join(static_directory, sujets[i],sujets[i]+suffixe+'_flipCorrected.nii.gz')
+            if os.path.exists(os.path.join(static_directory, subjects[i],subjects[i]+suffixe+'_flipCorrected.nii.gz')):
+                file_in = os.path.join(static_directory, subjects[i],subjects[i]+suffixe+'_flipCorrected.nii.gz')
             else:
-                file_in = os.path.join(static_directory, sujets[i], sujets[i]+suffixe + '.nii.gz')
+                file_in = os.path.join(static_directory, subjects[i], subjects[i]+suffixe + '.nii.gz')
         	
             # Get static segmentations
-            suffixe = sujets[i] + '_static_3DT1_segment_calcaneus'
-            if os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_flipped_binarized.nii.gz')):
-                file_segment_calcaneus = os.path.join(segment_directory, sujets[i],suffixe+'_flipped_binarized.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_binarized_flipCorrected.nii.gz')):
-                file_segment_calcaneus = os.path.join(segment_directory, sujets[i],suffixe+'_binarized_flipCorrected.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_flipCorrected.nii.gz')):
-                file_segment_calcaneus = os.path.join(segment_directory, sujets[i],suffixe+'_flipCorrected.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_binarized.nii.gz')):
-                file_segment_calcaneus = os.path.join(segment_directory, sujets[i],suffixe+'_binarized.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe + '.nii.gz')):
-                file_segment_calcaneus = os.path.join(segment_directory, sujets[i], suffixe + '.nii.gz')
+            suffixe = subjects[i] + '_static_3DT1_segment_calcaneus'
+            if os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_flipped_binarized.nii.gz')):
+                file_segment_calcaneus = os.path.join(segment_directory, subjects[i],suffixe+'_flipped_binarized.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_binarized_flipCorrected.nii.gz')):
+                file_segment_calcaneus = os.path.join(segment_directory, subjects[i],suffixe+'_binarized_flipCorrected.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_flipCorrected.nii.gz')):
+                file_segment_calcaneus = os.path.join(segment_directory, subjects[i],suffixe+'_flipCorrected.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_binarized.nii.gz')):
+                file_segment_calcaneus = os.path.join(segment_directory, subjects[i],suffixe+'_binarized.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe + '.nii.gz')):
+                file_segment_calcaneus = os.path.join(segment_directory, subjects[i], suffixe + '.nii.gz')
             else:
-                file_segment_calcaneus = os.path.join(segment_directory, sujets[i], sujets[i]+'_static_3DT1_segment_smooth_calcaneus.nii.gz')
+                file_segment_calcaneus = os.path.join(segment_directory, subjects[i], subjects[i]+'_static_3DT1_segment_smooth_calcaneus.nii.gz')
         
-            suffixe = sujets[i] + '_static_3DT1_segment_talus'
-            if os.path.exists(os.path.join(segment_directory, sujets[i],suffixe+'_flipped_binarized.nii.gz')):
-                file_segment_talus = os.path.join(segment_directory, sujets[i],suffixe+'_flipped_binarized.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_binarized_flipCorrected.nii.gz')):
-                file_segment_talus = os.path.join(segment_directory, sujets[i],suffixe+'_binarized_flipCorrected.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_flipCorrected.nii.gz')):
-                file_segment_talus = os.path.join(segment_directory, sujets[i],suffixe+'_flipCorrected.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_binarized.nii.gz')):
-                file_segment_talus = os.path.join(segment_directory, sujets[i],suffixe+'_binarized.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe + '.nii.gz')):
-                file_segment_talus = os.path.join(segment_directory, sujets[i], suffixe + '.nii.gz')
+            suffixe = subjects[i] + '_static_3DT1_segment_talus'
+            if os.path.exists(os.path.join(segment_directory, subjects[i],suffixe+'_flipped_binarized.nii.gz')):
+                file_segment_talus = os.path.join(segment_directory, subjects[i],suffixe+'_flipped_binarized.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_binarized_flipCorrected.nii.gz')):
+                file_segment_talus = os.path.join(segment_directory, subjects[i],suffixe+'_binarized_flipCorrected.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_flipCorrected.nii.gz')):
+                file_segment_talus = os.path.join(segment_directory, subjects[i],suffixe+'_flipCorrected.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_binarized.nii.gz')):
+                file_segment_talus = os.path.join(segment_directory, subjects[i],suffixe+'_binarized.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe + '.nii.gz')):
+                file_segment_talus = os.path.join(segment_directory, subjects[i], suffixe + '.nii.gz')
             else:
-                file_segment_talus = os.path.join(segment_directory, sujets[i], sujets[i]+'_static_3DT1_segment_smooth_talus.nii.gz')
+                file_segment_talus = os.path.join(segment_directory, subjects[i], subjects[i]+'_static_3DT1_segment_smooth_talus.nii.gz')
         
-            suffixe = sujets[i] + '_static_3DT1_segment_tibia'
-            if os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_flipped_binarized.nii.gz')):
-                file_segment_tibia = os.path.join(segment_directory, sujets[i],suffixe+'_flipped_binarized.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_binarized_flipCorrected.nii.gz')):
-                file_segment_tibia = os.path.join(segment_directory, sujets[i],suffixe+'_binarized_flipCorrected.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i],suffixe+'_flipCorrected.nii.gz')):
-                file_segment_tibia = os.path.join(segment_directory, sujets[i],suffixe+'_flipCorrected.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe+'_binarized.nii.gz')):
-                file_segment_tibia = os.path.join(segment_directory, sujets[i],suffixe+'_binarized.nii.gz')
-            elif os.path.exists(os.path.join(segment_directory, sujets[i], suffixe + '.nii.gz')):
-                file_segment_tibia = os.path.join(segment_directory, sujets[i],suffixe + '.nii.gz')
+            suffixe = subjects[i] + '_static_3DT1_segment_tibia'
+            if os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_flipped_binarized.nii.gz')):
+                file_segment_tibia = os.path.join(segment_directory, subjects[i],suffixe+'_flipped_binarized.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_binarized_flipCorrected.nii.gz')):
+                file_segment_tibia = os.path.join(segment_directory, subjects[i],suffixe+'_binarized_flipCorrected.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i],suffixe+'_flipCorrected.nii.gz')):
+                file_segment_tibia = os.path.join(segment_directory, subjects[i],suffixe+'_flipCorrected.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe+'_binarized.nii.gz')):
+                file_segment_tibia = os.path.join(segment_directory, subjects[i],suffixe+'_binarized.nii.gz')
+            elif os.path.exists(os.path.join(segment_directory, subjects[i], suffixe + '.nii.gz')):
+                file_segment_tibia = os.path.join(segment_directory, subjects[i],suffixe + '.nii.gz')
             else:
-                file_segment_tibia = os.path.join(segment_directory, sujets[i], sujets[i]+'_static_3DT1_segment_smooth_tibia.nii.gz')
+                file_segment_tibia = os.path.join(segment_directory, subjects[i], subjects[i]+'_static_3DT1_segment_smooth_tibia.nii.gz')
         	
             # Create the registration results directory
-            if not os.path.exists(os.path.join(result_directory,sujets[i])):
-                os.mkdir(os.path.join(result_directory,sujets[i]))
+            if not os.path.exists(os.path.join(result_directory,subjects[i])):
+                os.mkdir(os.path.join(result_directory,subjects[i]))
         
             
-            images=os.listdir(os.path.join(dynamic_directory,sujets[i], 'volumes'))
+            images=os.listdir(os.path.join(dynamic_directory,subjects[i], 'volumes'))
 
             for j in range(len(images)):
                 # Get dynamic MRI "MovieClear"
-                if images[j].find('MovieClear')!=-1 and not(sujets[i]=='sub_E03' and images[j].find('10')!=-1):
-                    if not(sujets[i]=='sub_T01' and images[j].find('flipCorrected')==-1):
+                if images[j].find('MovieClear')!=-1 and not(subjects[i]=='sub_E03' and images[j].find('10')!=-1):
+                    if not(subjects[i]=='sub_T01' and images[j].find('flipCorrected')==-1):
                         print('*Vidéo : '+str(images[j]))
         
                         # Create subdirectories for registrations
-                        if not os.path.exists(os.path.join(result_directory,sujets[i], 'registrations')):
-                            os.mkdir(os.path.join(result_directory,sujets[i], 'registrations'))
-                        if not os.path.exists(os.path.join(result_directory,sujets[i], 'registrations', images[j].replace('.nii.gz',''))):
-                            os.mkdir(os.path.join(result_directory,sujets[i], 'registrations',images[j].replace('.nii.gz','')))
+                        if not os.path.exists(os.path.join(result_directory,subjects[i], 'registrations')):
+                            os.mkdir(os.path.join(result_directory,subjects[i], 'registrations'))
+                        if not os.path.exists(os.path.join(result_directory,subjects[i], 'registrations', images[j].replace('.nii.gz',''))):
+                            os.mkdir(os.path.join(result_directory,subjects[i], 'registrations',images[j].replace('.nii.gz','')))
                 
                         # Registration of static MRI on dynamic MRI
-                        volumes = os.listdir(os.path.join(dynamic_directory,sujets[i], 'volumes', images[j].replace('.nii.gz',''), 'volumes3D'))
+                        volumes = os.listdir(os.path.join(dynamic_directory,subjects[i], 'volumes', images[j].replace('.nii.gz',''), 'volumes3D'))
 
                         for k in range(len(volumes)):
                             print('\t *Volume : '+volumes[k])
-                            file_ref = os.path.join(dynamic_directory,sujets[i], 'volumes',images[j].replace('.nii.gz',''), 'volumes3D', volumes[k])
-                            recording_directory = os.path.join(result_directory,sujets[i], 'registrations', images[j].replace('.nii.gz',''))
+                            file_ref = os.path.join(dynamic_directory,subjects[i], 'volumes',images[j].replace('.nii.gz',''), 'volumes3D', volumes[k])
+                            recording_directory = os.path.join(result_directory,subjects[i], 'registrations', images[j].replace('.nii.gz',''))
 
-                            if os.path.exists(os.path.join(result_directory,sujets[i], 'registrations',images[j],volumes[k].replace('.nii.gz','')+'_registration.nii.gz')):
+                            if os.path.exists(os.path.join(result_directory,subjects[i], 'registrations',images[j],volumes[k].replace('.nii.gz','')+'_registration.nii.gz')):
                                 pass
                             else:
                                 print('\t \t REGISTRATION.......')
@@ -199,7 +199,7 @@ def registration(args):
                                 for bone in ['calcaneus', 'talus', 'tibia']:
 
                                     # Registration bone-to-bone
-                                    masks = os.listdir(os.path.join(segment_directory, sujets[i], 'segment', bone+'_dilated', 'blurred'))
+                                    masks = os.listdir(os.path.join(segment_directory, subjects[i], 'segment', bone+'_dilated', 'blurred'))
                                     for blurred in masks:
                                         if bone == 'calcaneus':
                                             if 'r1' in blurred:
@@ -215,14 +215,14 @@ def registration(args):
                                         command = '{} -in {} -ref {} -inweight {} -out {} -omat {} -init {} -dof 6 -nosearch'.format(flirt,
                                                 file_in,
                                                 file_ref,
-                                                os.path.join(segment_directory, sujets[i], 'segment', bone+'_dilated', 'blurred',mask),
+                                                os.path.join(segment_directory, subjects[i], 'segment', bone+'_dilated', 'blurred',mask),
                                                 os.path.join(recording_directory,volumes[k].replace('.nii.gz','')+'_registration_'+bone+'.nii.gz'),
                                                 os.path.join(recording_directory,volumes[k].replace('.nii.gz','')+'_registration_'+bone+'.mat'),
                                                 os.path.join(recording_directory,volumes[k].replace('.nii.gz','')+'_registration.mat'))
                                         os.system(command)
                                         
                                     # Registration static segmentation
-                                    if os.path.exists(os.path.join(result_directory,sujets[i],images[j],volumes[k].replace('.nii.gz','')+'_registration_segment_'+bone+'.nii.gz')):
+                                    if os.path.exists(os.path.join(result_directory,subjects[i],images[j],volumes[k].replace('.nii.gz','')+'_registration_segment_'+bone+'.nii.gz')):
                                         pass
                                     else:
                                         if bone == 'calcaneus':
