@@ -23,9 +23,6 @@ def extract_volumes(args):
         videos=os.listdir(os.path.join(args.source_dir, subjects[i]))
         for j in range(len(videos)):
             if videos[j].split('_')[2]=='dynamic' and videos[j].split('_')[3]=='MovieClear':
-                V=nib.load(os.path.join(args.source_dir, subjects[i], videos[j]))
-                affine = V.get_sform()
-
                 path = os.path.join(args.result_dir, subjects[i])
                 print(path)
                 if not os.path.exists(path):
@@ -39,13 +36,18 @@ def extract_volumes(args):
                 path = os.path.join(path, "volumes3D")
                 if not os.path.exists(path):
                     os.mkdir(path)
-
-                data=V.get_fdata()
-                size=data.shape
-                for k in range(size[3]):
-                    volume=data[:,:,:,k]
-                    volume=nib.Nifti1Image(volume, affine)
-                    nib.save(volume, os.path.join(path, videos[j][:-7]+"_vol"+str(k).rjust(4,'0')+".nii.gz"))
+                
+                if len(os.listdir(path)) >= 15:
+                    pass
+                else:
+                    V=nib.load(os.path.join(args.source_dir, subjects[i], videos[j]))
+                    affine = V.get_sform()
+                    data=V.get_fdata()
+                    size=data.shape
+                    for k in range(size[3]):
+                        volume=data[:,:,:,k]
+                        volume=nib.Nifti1Image(volume, affine)
+                        nib.save(volume, os.path.join(path, videos[j][:-7]+"_vol"+str(k).rjust(4,'0')+".nii.gz"))
     
 
 
