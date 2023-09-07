@@ -41,7 +41,6 @@ class BaseOptions():
         to_save = ''
         text = ''
         text += '----------------- Options ---------------\n'
-        # for k, v in sorted(vars(opt).items()):
         for k, v in sorted(vars(opt).items()):
             comment = ''
             default = self.parser.get_default(k)
