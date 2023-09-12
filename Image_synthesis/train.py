@@ -1,12 +1,8 @@
 from os.path import expanduser
 from posix import listdir
 from numpy import NaN, dtype
-
 from torchio.data import image
 from torchio.utils import check_sequence
-home = expanduser("~")
-
-import torchvision
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,18 +14,15 @@ import sys
 from pytorch_lightning.callbacks import ModelCheckpoint
 import matplotlib.pyplot as plt
 import glob
-import multiprocessing
-import math
 from datetime import datetime
 from pytorch_lightning import seed_everything
-
 from pytorch_lightning.loggers import TensorBoardLogger, tensorboard
 import argparse
 from DRITPP_2 import DRIT 
 from Degradation_nets import Degradation_paired, Degradation_unpaired
 from options.train_options import TrainOptions
 from load_data import load_data
-
+home = expanduser("~")
 
 def normalize(tensor):
     for i in range(tensor.shape[1]):
@@ -75,7 +68,7 @@ if __name__ == '__main__':
     subjects=[]
 
     #############################################################################################################################################################################""
-
+    # DATASET
     if data != 'MNIST':
         if args.dynamic_path!=None and args.static_path!=None:
             subjects, check_subjects = load_data(data='custom', segmentation=args.segmentation, batch_size=training_batch_size, dynamic_path = args.dynamic_path, static_path = args.static_path)
@@ -93,19 +86,14 @@ if __name__ == '__main__':
         bias = tio.RandomBiasField(coefficients = 0.5, p=0.5)
         noise = tio.RandomNoise(std=0.1, p=0.25)
         if data == 'equinus_simulate':
-            #prefix += '_bias_flip_affine_noise_VERSION_'+version
             prefix += '_bs_flp_afn_nse_VERSION_'
         else:
             pass
-            # prefix += '_bias_flip_affine_noise_'
-            # prefix += '_bs_flp_afn_nse_'
 
         if (data=='dhcp_2mm' or data=='dhcp_1mm' or data=='dhcp_original'):
             normalization = tio.ZNormalization(masking_method='label')
-            #normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
             spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
 
-        #if data=='equinus_sourcedata' or data=='equinus_simulate':
         else:
             normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
             spatial = tio.RandomAffine(scales=0.1,degrees=(20,0,0), translation=0, p=0.75)
@@ -114,12 +102,11 @@ if __name__ == '__main__':
             normalization = tio.RescaleIntensity()
 
         transforms = [flip, spatial, bias, normalization, noise]
-
-
         training_transform = tio.Compose(transforms)
         validation_transform = tio.Compose([normalization])   
 
         #############################################################################################################################################################################""
+        # TRAIN AND VALIDATION SETS
 
         if (data=="equinus_256" or data=="bone_segmentation_equinus_256" or data=="segmentation_equinus_256" or data=='equinus_256_boneseg'):
             training_sub=['sub_E05', 'sub_T03', 'sub_T02', 'sub_T05', 'sub_T01', 'sub_T04', 'sub_E02', 'sub_E01', 'sub_T08', 'sub_E08', 'sub_E06']
@@ -292,32 +279,33 @@ if __name__ == '__main__':
             DICT = {k:(pretrained_dict[k] if (k in pretrained_dict.keys()) else model_dict[k]) for k in model_dict.keys()}
             net.load_state_dict(DICT)
 
-    checkpoint_callback = ModelCheckpoint(filepath=output_path+'Checkpoint_'+prefix+'_{epoch}-{val_loss:.2f}')#, save_top_k=1, monitor=)
+    # checkpoint_callback = ModelCheckpoint(filepath=output_path+'Checkpoint_'+prefix+'_{epoch}-{val_loss:.2f}')#, save_top_k=1, monitor=)
+    checkpoint_callback = ModelCheckpoint(dirpath=output_path)#, save_top_k=1, monitor=)
 
     logger = TensorBoardLogger(save_dir = output_path, name = 'Test_logger',version=prefix)
 
     if gpu >= 0:
-        device = gpu
+        device = 'gpu' # version avec les anciennes version de pytorch ont été enregistrées le 07/09/2023 sur GitHub
     else:
-        device = None
+        device = 'cpu'
 
     if args.seed:
         trainer = pl.Trainer(
-            gpus=[device],
+            accelerator=device, ##
             max_epochs=num_epochs,
-            progress_bar_refresh_rate=20,
+            #progress_bar_refresh_rate=20,##
             logger=logger,
-            checkpoint_callback= checkpoint_callback,
+            callbacks= checkpoint_callback, ##
             precision=16,
-            deterministic=True
+            deterministic='warn'
         )
     else:
         trainer = pl.Trainer(
-            gpus=[device],
+            accelerator=device, ##
             max_epochs=num_epochs,
-            progress_bar_refresh_rate=20,
+            #progress_bar_refresh_rate=20, ##
             logger=logger,
-            checkpoint_callback= checkpoint_callback,
+            callbacks= checkpoint_callback, ##
             precision=16
         )
 
@@ -326,5 +314,3 @@ if __name__ == '__main__':
     torch.save(net.state_dict(), output_path+prefix+'_torch.pt')
 
     print('Finished Training')
-
-
