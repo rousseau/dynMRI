@@ -9,7 +9,6 @@ from torchio.data import image
 from torchio.utils import check_sequence
 home = expanduser("~")
 
-import torchvision
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -24,78 +23,10 @@ from torchvision.models import resnet50
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import glob
-import multiprocessing
-import math
 
 from pytorch_lightning.loggers import TensorBoardLogger, tensorboard
 import argparse
 
-
-
-# class SpectralNorm(object):
-#     def __init__(self, name='weight', n_power_iterations=1, dim=0, eps=1e-12):
-#         self.name = name
-#         self.dim = dim
-#         if n_power_iterations <= 0:
-#             raise ValueError('Expected n_power_iterations to be positive, but '
-#                         'got n_power_iterations={}'.format(n_power_iterations))
-#         self.n_power_iterations = n_power_iterations
-#         self.eps = eps
-#     def compute_weight(self, module):
-#         weight = getattr(module, self.name + '_orig')
-#         u = getattr(module, self.name + '_u')
-#         weight_mat = weight
-#         if self.dim != 0:
-#             # permute dim to front
-#             weight_mat = weight_mat.permute(self.dim,
-#                                                 *[d for d in range(weight_mat.dim()) if d != self.dim])
-#         height = weight_mat.size(0)
-#         weight_mat = weight_mat.reshape(height, -1)
-#         with torch.no_grad():
-#             for _ in range(self.n_power_iterations):
-#                 v = F.normalize(torch.matmul(weight_mat.t(), u), dim=0, eps=self.eps)
-#                 u = F.normalize(torch.matmul(weight_mat, v), dim=0, eps=self.eps)
-#         sigma = torch.dot(u, torch.matmul(weight_mat, v))
-#         weight = weight / sigma
-#         return weight, u
-#     def remove(self, module):
-#         weight = getattr(module, self.name)
-#         delattr(module, self.name)
-#         delattr(module, self.name + '_u')
-#         delattr(module, self.name + '_orig')
-#         module.register_parameter(self.name, torch.nn.Parameter(weight))
-#     def __call__(self, module, inputs):
-#         if module.training:
-#             weight, u = self.compute_weight(module)
-#             setattr(module, self.name, weight)
-#             setattr(module, self.name + '_u', u)
-#         else:
-#             r_g = getattr(module, self.name + '_orig').requires_grad
-#             getattr(module, self.name).detach_().requires_grad_(r_g)
-
-#     @staticmethod
-#     def apply(module, name, n_power_iterations, dim, eps):
-#         fn = SpectralNorm(name, n_power_iterations, dim, eps)
-#         weight = module._parameters[name]
-#         height = weight.size(dim)
-#         u = F.normalize(weight.new_empty(height).normal_(0, 1), dim=0, eps=fn.eps)
-#         delattr(module, fn.name)
-#         module.register_parameter(fn.name + "_orig", weight)
-#         module.register_buffer(fn.name, weight.data)
-#         module.register_buffer(fn.name + "_u", u)
-#         module.register_forward_pre_hook(fn)
-#         return fn
-
-# def spectral_norm(module, name='weight', n_power_iterations=1, eps=1e-12, dim=None):
-#     if dim is None:
-#         if isinstance(module, (torch.nn.ConvTranspose1d,
-#                             torch.nn.ConvTranspose2d,
-#                             torch.nn.ConvTranspose3d)):
-#             dim = 1
-#         else:
-#             dim = 0
-#     SpectralNorm.apply(module, name, n_power_iterations, dim, eps)
-#     return module
 
 def get_scheduler(optimizer, opts, cur_ep=-1):
     epoch=50
@@ -454,8 +385,6 @@ class AdaAttN(nn.Module):
         
     def forward(self, style, content):
         style_normalized = self.bn(style)
-        # print("mean style normalized per channel: ", torch.mean(style_normalized[:,0,:,:]))
-        # print("std style normalized per channel: ", torch.std(style_normalized[:,0,:,:]))
 
         activation = self.activation(content)
         gamma = self.predict_gamma(activation)
@@ -464,8 +393,6 @@ class AdaAttN(nn.Module):
         print('gamma shape: ', gamma.shape)
 
         out = style_normalized * (1 + gamma) + beta
-        # print("out shape: ", out.shape)
-        # sys.exit()
         return(out)    
 
 
@@ -500,7 +427,6 @@ class AdaAttNResBlock(nn.Module):
         
 
         skip_connection = z
-
         z = self.adaattn(style=z, content=x)
         z = self.lrelu(z)
         z = self.conv1(z)
@@ -543,7 +469,6 @@ class Generator_AdaAttN(nn.Module):
 
     def forward(self, x, z):
         z=self.mlp(z)
-
         z=z.view((x.shape[0], x.shape[1],-1))
         z1, z2 = torch.split(z, self.tch_add, dim=2)
         z1, z2 = z1.contiguous(), z2.contiguous()
@@ -578,8 +503,6 @@ class SPADE(nn.Module):
         
     def forward(self, style, content):
         style_normalized = self.bn(style)
-        # print("mean style normalized per channel: ", torch.mean(style_normalized[:,0,:,:]))
-        # print("std style normalized per channel: ", torch.std(style_normalized[:,0,:,:]))
 
         activation = self.activation(content)
         gamma = self.predict_gamma(activation)
@@ -588,8 +511,6 @@ class SPADE(nn.Module):
         print('gamma shape: ', gamma.shape)
 
         out = style_normalized * (1 + gamma) + beta
-        # print("out shape: ", out.shape)
-        # sys.exit()
         return(out)    
 
 
@@ -621,13 +542,9 @@ class SPADEResBlock(nn.Module):
         z = self.mlp(z)
         print("z shape after mlp: ", z.shape)
         z = torch.reshape(z.unsqueeze(-1), [z.shape[0], x.shape[1], x.shape[2], x.shape[3]])
-        # print("z shape after reshape: ", z.shape)
-        
 
         skip_connection = z
-
         z = self.spade(style=z, content=x)
-
         z = self.lrelu(z)
         z = self.conv1(z)
         z = self.spade(style = z, content = x)
@@ -669,11 +586,8 @@ class Generator_SPADE(nn.Module):
 
     def forward(self, x, z):
         z=self.mlp(z)
-
         z=z.view((x.shape[0], x.shape[1],-1))
-
         z1, z2 = torch.split(z, self.tch_add, dim=2)
-
         z1, z2 = z1.contiguous(), z2.contiguous()
         out1 = self.resbloc1(x, z1)
         out2 = self.resbloc2(out1, z2)
@@ -693,17 +607,13 @@ class AdaIN(nn.Module):
         assert content.shape[:2] == style.shape[:2] # channel wise mean and variance (batch size + channel)
         mean_style=torch.mean(style, dim=2)
         std_style=torch.std(style, dim=2)
-        mean_content=torch.mean(content, dim=(2,3)) #!!!!!!!!!!!!!!
-        std_content=torch.std(content, dim=(2,3)) #!!!!!!!!!!!!!!
-        # print('content shape: '+str(content.shape))
-        # print('style shape: '+str(style.shape))
-        # print('mean content shape: '+str(mean_content.shape))
-        # print('mean style shape: '+str(mean_style.shape))
-        # sys.exit()
+        mean_content=torch.mean(content, dim=(2,3)) 
+        std_content=torch.std(content, dim=(2,3))
 
         normalized_content=(content - mean_content.unsqueeze(-1).unsqueeze(-1).expand(content.shape)) / std_content.unsqueeze(-1).unsqueeze(-1).expand(content.shape) #!!!!!!!!!!!!!!
         out=normalized_content * std_style.unsqueeze(-1).unsqueeze(-1).expand(normalized_content.shape) + mean_style.unsqueeze(-1).unsqueeze(-1).expand(normalized_content.shape)
         return(out)
+
 
 class AdaINResBlock(nn.Module):
     def __init__(self, in_planes, out_planes):
@@ -800,8 +710,7 @@ class Generator_Concat(nn.Module):
         self.n_classes=n_classes
         self.n_features=n_features
         self.tch_add=10
-
-        #self.mlp=multi_layer_perceptron()
+        
         self.resbloc1=BasicResBlock(self.n_channels, self.n_channels)
         self.resbloc2=BasicResBlock(self.n_channels, self.n_channels)
         self.up=nn.Sequential(
@@ -813,10 +722,6 @@ class Generator_Concat(nn.Module):
 
 
     def forward(self, x, z):
-        #z=self.mlp(z)
-        # z=z.view((x.shape[0], x.shape[1],-1))
-        # z1, z2 = torch.split(z, self.tch_add, dim=2)
-        # z1, z2 = z1.contiguous(), z2.contiguous()
         X = torch.cat([x,z], dim=1)
 
         out1 = self.resbloc1(X)
@@ -836,7 +741,6 @@ class FiLM(nn.Module):
         gamma=gamma.unsqueeze(-1).unsqueeze(-1)
         beta=beta.unsqueeze(-1).unsqueeze(-1)
         out = gamma * x + beta # beta et gamma doivent avoir le meme nombre de nombres que la feature map a de channels -> un coeff par channel
-
 
         return out 
 
@@ -965,10 +869,6 @@ class Generator_feature_reduce(nn.Module):
         z=self.mlp(z)
         z1, z2, z3 = torch.split(z, self.tch_add, dim=1)
         z1, z2, z3 = z1.contiguous(), z2.contiguous(), z3.contiguous()
-        # print(z.shape)
-        # print(z1.shape)
-        # print(x.shape)
-        # sys.exit()
         out1 = self.resbloc1(x, z1)
         out2 = self.resbloc2(out1, z2)
         out3 = self.resbloc3(out2, z3)
@@ -1078,7 +978,6 @@ class Discriminateur(nn.Module):
 class Discriminateur_reduce(nn.Module):
     def __init__(self, n_channels = 1, n_layers = 5, n_features = 64):
         super(Discriminateur_reduce, self).__init__()
-        # initialement, n_layers=6
         self.n_features=n_features
         self.n_channels=n_channels
         self.n_layers=n_layers
@@ -1138,7 +1037,6 @@ class N_pair_Loss(nn.Module):
         assert features1.shape == features2.shape, "Dimensions of features mismatch"
         SHAPE = features1.shape
         dot_product = torch.matmul(features1, features2.T)
-
         mask_positive = torch.diag(torch.ones(SHAPE[0])).to(self.Device)
         mask_negative = torch.ones(SHAPE[0], SHAPE[0]).to(self.Device) - mask_positive
         
@@ -1203,7 +1101,6 @@ class SupervisedContrastiveLoss(nn.Module):
         contrast_count = features.shape[1]
         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
 
-
         if self.contrast_mode == 'one':
             anchor_feature = features[:, 0]
             anchor_count = 1
@@ -1238,10 +1135,8 @@ class SupervisedContrastiveLoss(nn.Module):
         exp_logits = torch.exp(logits) * logits_mask
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
-
         # compute mean of log-likelihood over positive
         mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
-
 
         # loss
         loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
@@ -1502,7 +1397,7 @@ class Loss_DRIT_custom(nn.Module):
             self.RETURNS_PER_NETWORK[4] += 'loss_G_LR+'
 
         if (opt.lambda_style_loss != 0 or opt.lambda_content_loss != 0):
-            sys.exit('Not implemented yet')
+            sys.exit('This loss is not implemented yet')
 
         if (opt.random_size !=0 and opt.lambda_D_domain != 0):
             self.random_size = opt.random_size
@@ -1516,7 +1411,6 @@ class Loss_DRIT_custom(nn.Module):
             self.RETURNS_PER_NETWORK[9] += 'loss_D2_+'
 
         self.RETURNS_PER_NETWORK = [e[:-1] for e in self.RETURNS_PER_NETWORK]
-
 
     def cyclic_anatomy(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
         return torch.nn.L1Loss()(content_HR, content_fake_LR)*self.lambda_cyclic_anatomy, torch.nn.L1Loss()(content_LR, content_fake_HR)*self.lambda_cyclic_anatomy
@@ -1773,11 +1667,490 @@ class Loss_DRIT_custom(nn.Module):
         
 
 
+class Loss_DRIT_custom_last_version(nn.Module):
+    '''
+    Loss customisée. Au lieu de calculer à chaque training step l'ensemble des loss et de pondérer parun lambda potentiellement nul
+    On regarde d'emblée quels sont les hyper paramètres qui sont non nuls et on répartis les loss pour chaque réseau dans l'initialisation. 
+    On évite ainsi pas mal de tests et d'opérations inutiles
+    Paramètres:
+        - opt -> fichier d'option
+        - toutes les variables résultatnt de infer batch
+
+    Sortie:
+        - Loss par réseau (à noter qu'il y a deux forward différents selon si la random size est non nulle ou non)
+    '''
+    def __init__(self, opt, gpu):#, OPTIMIZERS):
+        super(Loss_DRIT_custom_last_version, self).__init__()
+        self.random_size = opt.random_size
+        self.gpu = gpu
+        Number_of_networks = 10
+
+        self.LOSSES = [None for i in range(Number_of_networks)] # contient toutes les loss
+        self.LOSS_RETURNS = [None for i in range(Number_of_networks)] # contient les param de retour des loss
+        self.LOSSES_PER_NETWORKS = [[] for i in range(Number_of_networks)] # contient les indices des loss de self.LOSSES à utiliser pour un réseau
+        self.LOSS_INPUTS = [None for i in range(Number_of_networks)]
+        self.RETURNS_PER_NETWORK = ['' for i in range(Number_of_networks)]
+        if self.random_size != 0:
+            self.OPTIMIZERS = 'optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2'
+        else:
+            self.OPTIMIZERS = 'optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR'
+
+        if opt.lambda_cyclic_anatomy != 0:
+            self.lambda_cyclic_anatomy = opt.lambda_cyclic_anatomy
+            self.LOSSES[0] = self.cyclic_anatomy
+            self.LOSS_INPUTS[0] = ['content_LR, content_HR, content_fake_LR, content_fake_HR']
+            self.LOSS_RETURNS[0] = "cyclic_anatomy_HR, cyclic_anatomy_LR"
+            self.LOSSES_PER_NETWORKS[0].append(0)
+            self.LOSSES_PER_NETWORKS[3].append(0)
+            self.LOSSES_PER_NETWORKS[4].append(0)
+            self.RETURNS_PER_NETWORK[0] += 'cyclic_anatomy_HR+cyclic_anatomy_LR+'
+            self.RETURNS_PER_NETWORK[3] += 'cyclic_anatomy_LR+'
+            self.RETURNS_PER_NETWORK[4] += 'cyclic_anatomy_HR+'
+
+        if opt.lambda_cyclic_modality != 0:
+            self.lambda_cyclic_modality = opt.lambda_cyclic_modality
+            self.LOSSES[1] = self.cyclic_modality
+            self.LOSS_INPUTS[1] = ['z_LR, z_HR, z_fake_LR, z_fake_HR']
+            self.LOSS_RETURNS[1] = "cyclic_modality_HR, cyclic_modality_LR"
+            self.LOSSES_PER_NETWORKS[1].append(1)
+            self.LOSSES_PER_NETWORKS[2].append(1)
+            self.LOSSES_PER_NETWORKS[3].append(1)
+            self.LOSSES_PER_NETWORKS[4].append(1)
+            self.RETURNS_PER_NETWORK[1] += 'cyclic_modality_HR+'
+            self.RETURNS_PER_NETWORK[2] += 'cyclic_modality_LR+'
+            self.RETURNS_PER_NETWORK[3] += 'cyclic_modality_HR+'
+            self.RETURNS_PER_NETWORK[4] += 'cyclic_modality_LR+'
+
+        if opt.lambda_contrastive_modality != 0:
+            self.lambda_contrastive_modality = opt.lambda_contrastive_modality
+            self.LOSSES[2] = self.contrastive_loss
+            self.LOSS_INPUTS[2] = ['z_LR, z_HR, z_fake_LR, z_fake_HR']
+            self.LOSS_RETURNS[2] = "contrastive_loss_modality, contrastive_loss_modalityfake"
+            self.LOSSES_PER_NETWORKS[1].append(2)
+            self.LOSSES_PER_NETWORKS[2].append(2)
+            self.LOSSES_PER_NETWORKS[3].append(2)
+            self.LOSSES_PER_NETWORKS[4].append(2)
+            self.RETURNS_PER_NETWORK[1] += 'contrastive_loss_modality+contrastive_loss_modalityfake+'
+            self.RETURNS_PER_NETWORK[2] += 'contrastive_loss_modality+contrastive_loss_modalityfake+'
+            self.RETURNS_PER_NETWORK[3] += 'contrastive_loss_modalityfake+'
+            self.RETURNS_PER_NETWORK[4] += 'contrastive_loss_modalityfake+'
+
+        if opt.lambda_Npair != 0:
+            self.lambda_Npair = opt.lambda_Npair
+            self.LOSSES[3] = self.n_pair
+            self.LOSS_INPUTS[3] = ['content_LR, content_HR, content_fake_LR, content_fake_HR']
+            self.LOSS_RETURNS[3] = "contrastive_loss_anat, contrastive_loss_anatfake"
+            self.LOSSES_PER_NETWORKS[0].append(3)
+            self.LOSSES_PER_NETWORKS[3].append(3)
+            self.LOSSES_PER_NETWORKS[4].append(3)
+            self.RETURNS_PER_NETWORK[0] += 'contrastive_loss_anat+contrastive_loss_anatfake+'
+            self.RETURNS_PER_NETWORK[3] += 'contrastive_loss_anatfake+'
+            self.RETURNS_PER_NETWORK[4] += 'contrastive_loss_anatfake+'
+        
+        if opt.lambda_D_content != 0:
+            self.lambda_D_content = opt.lambda_D_content
+            self.LOSSES[4] = self.backward_D_content
+            self.LOSS_INPUTS[4] = ['content_LR, content_HR, discriminator_content']
+            self.LOSS_RETURNS[4] = "loss_D_content"
+            self.LOSSES_PER_NETWORKS[5].append(4)
+            self.RETURNS_PER_NETWORK[5] += 'loss_D_content+'
+
+        if opt.lambda_latent != 0:
+            self.lambda_latent = opt.lambda_latent
+            self.LOSSES[5] = self.backward_G_alone
+            self.LOSS_INPUTS[5] = ['fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, z_random, discriminator_LR2, discriminator_HR2']
+            self.LOSS_RETURNS[5] = "loss_z_LR, loss_z_HR"
+            self.LOSSES_PER_NETWORKS[0].append(5)
+            self.LOSSES_PER_NETWORKS[3].append(5)
+            self.LOSSES_PER_NETWORKS[4].append(5)
+            self.RETURNS_PER_NETWORK[0] += 'loss_z_LR+loss_z_HR+'
+            self.RETURNS_PER_NETWORK[3] += 'loss_z_HR+'
+            self.RETURNS_PER_NETWORK[4] += 'loss_z_LR+'
+
+        if opt.lambda_D_domain != 0:
+            self.lambda_D_domain = opt.lambda_D_domain
+            self.LOSSES[6] = self.backward_D_domain
+            self.LOSS_INPUTS[6] = ['discriminator_LR, LR, fake_LR', 'discriminator_HR, HR, fake_HR']
+            self.LOSS_RETURNS[6] = "loss_D1_"
+            self.LOSSES_PER_NETWORKS[6].append(6)
+            self.LOSSES_PER_NETWORKS[7].append(6)
+            self.RETURNS_PER_NETWORK[6] += 'loss_D1_+'
+            self.RETURNS_PER_NETWORK[7] += 'loss_D1_+'
+
+        if (opt.lambda_self != 0 or opt.lambda_cross_cycle != 0 or opt.lambda_reg != 0 or opt.lambda_adv_anatomy_encoder != 0 or opt.lambda_adv_generator != 0):
+            self.lambda_self = opt.lambda_self
+            self.lambda_cross_cycle = opt.lambda_cross_cycle
+            self.lambda_reg = opt.lambda_reg
+            self.lambda_adv_anatomy_encoder = opt.lambda_adv_anatomy_encoder
+            self.lambda_adv_generator = opt.lambda_adv_generator
+            self.LOSSES[7] = self.backward_EG
+            self.LOSS_INPUTS[7] = ['LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, discriminator_content, discriminator_LR, discriminator_HR']
+            self.LOSS_RETURNS[7] = "loss_G_LR, loss_G_HR"
+            self.LOSSES_PER_NETWORKS[0].append(7)
+            self.LOSSES_PER_NETWORKS[1].append(7)
+            self.LOSSES_PER_NETWORKS[2].append(7)
+            self.LOSSES_PER_NETWORKS[3].append(7)
+            self.LOSSES_PER_NETWORKS[4].append(7)
+            self.RETURNS_PER_NETWORK[0] += 'loss_G_LR+loss_G_HR+'
+            self.RETURNS_PER_NETWORK[1] += 'loss_G_HR+'
+            self.RETURNS_PER_NETWORK[2] += 'loss_G_LR+'
+            self.RETURNS_PER_NETWORK[3] += 'loss_G_HR+'
+            self.RETURNS_PER_NETWORK[4] += 'loss_G_LR+'
+
+        if (opt.lambda_style_loss != 0 or opt.lambda_content_loss != 0):
+            sys.exit('This loss is not implemented yet')
+
+        if (opt.random_size !=0 and opt.lambda_D_domain != 0):
+            self.random_size = opt.random_size
+            self.lambda_D_domain = opt.lambda_D_domain
+            self.LOSSES[9] = self.backward_D_domain
+            self.LOSS_INPUTS[9] = ['discriminator_LR2, LR_random, fake_LR_random', 'discriminator_HR2, HR_random, fake_HR_random']
+            self.LOSS_RETURNS[9] = "loss_D2_"
+            self.LOSSES_PER_NETWORKS[8].append(9)
+            self.LOSSES_PER_NETWORKS[9].append(9)
+            self.RETURNS_PER_NETWORK[8] += 'loss_D2_+'
+            self.RETURNS_PER_NETWORK[9] += 'loss_D2_+'
+
+        self.RETURNS_PER_NETWORK = [e[:-1] for e in self.RETURNS_PER_NETWORK]
+
+
+    def cyclic_anatomy(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
+        return torch.nn.L1Loss()(content_HR, content_fake_LR)*self.lambda_cyclic_anatomy, torch.nn.L1Loss()(content_LR, content_fake_HR)*self.lambda_cyclic_anatomy
+     
+    def cyclic_modality(self, z_LR, z_HR, z_fake_LR, z_fake_HR):
+        return torch.nn.L1Loss()(z_HR, z_fake_HR)*self.lambda_cyclic_modality , torch.nn.L1Loss()(z_LR, z_fake_LR)*self.lambda_cyclic_modality
+    
+    def n_pair(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
+        L = N_pair_Loss()
+        batch_size = content_HR.shape[0]
+        content_LR = content_LR.reshape(batch_size, -1)
+        content_HR = content_HR.reshape(batch_size, -1)
+        content_fake_LR = content_fake_LR.reshape(batch_size, -1)
+        content_fake_HR = content_fake_HR.reshape(batch_size, -1)
+
+        content_LR_norm = torch.nn.functional.normalize(content_LR, dim=1) # borne les vecteurs pour qu'ils aient une norme de 1
+        content_HR_norm = torch.nn.functional.normalize(content_HR, dim=1)
+        content_fake_LR_norm = torch.nn.functional.normalize(content_fake_LR, dim=1)
+        content_fake_HR_norm = torch.nn.functional.normalize(content_fake_HR, dim=1)
+        loss_anat = L(features1 = content_HR_norm, features2=content_LR_norm)*self.lambda_Npair
+        loss_anatfake = L(features1 = content_fake_HR_norm, features2=content_fake_LR_norm)*self.lambda_Npair
+
+        return loss_anat, loss_anatfake
+    
+    def contrastive_loss(self, z_LR, z_HR, z_fake_LR, z_fake_HR):
+        L = SupervisedContrastiveLoss()
+        batch_size = z_HR.shape[0]
+        labels = torch.cat([torch.full((batch_size,), 0, dtype=torch.float), torch.full((batch_size,), 1, dtype=torch.float)], dim=0).to(self.Device)
+        
+        z_LR = z_LR.reshape(batch_size, -1)
+        z_HR = z_HR.reshape(batch_size, -1)
+        z_fake_LR = z_fake_LR.reshape(batch_size, -1)
+        z_fake_HR = z_fake_HR.reshape(batch_size, -1)
+
+        modality_norm = torch.nn.functional.normalize(torch.cat([z_HR, z_LR], dim = 0).unsqueeze(1), dim = 2)
+        modalityfake_norm = torch.nn.functional.normalize(torch.cat([z_fake_HR, z_fake_LR], dim = 0).unsqueeze(1), dim = 2)
+        loss_modality = L(features = modality_norm, labels = labels)*self.lambda_contrastive_modality
+        loss_modalityfake = L(features = modalityfake_norm, labels = labels)*self.lambda_contrastive_modality
+        return loss_modality, loss_modalityfake
+
+    def backward_D_domain(self, netD, real, fake):
+        pred_fake = netD.forward(fake.detach())
+        pred_real = netD.forward(real)
+        loss_D = 0
+        for it, (out_a, out_b) in enumerate(zip(pred_fake, pred_real)):
+            out_fake = torch.sigmoid(out_a)
+            out_real = torch.sigmoid(out_b)
+            all0 = torch.zeros_like(out_fake).cuda(self.gpu)
+            all1 = torch.ones_like(out_real).cuda(self.gpu)
+            ad_fake_loss = nn.functional.binary_cross_entropy_with_logits(out_fake, all0)
+            ad_true_loss = nn.functional.binary_cross_entropy_with_logits(out_real, all1)
+            loss_D += ad_true_loss + ad_fake_loss
+        return loss_D*self.lambda_D_domain
+
+    def backward_D_content(self, imageA, imageB, discriminator_content):
+        pred_fake = discriminator_content.forward(imageA.detach())
+        pred_real = discriminator_content.forward(imageB.detach())
+        for it, (out_a, out_b) in enumerate(zip(pred_fake, pred_real)):
+            out_fake = torch.sigmoid(out_a)
+            out_real = torch.sigmoid(out_b)
+            all1 = torch.ones((out_real.size(0))).cuda(self.gpu)
+            all0 = torch.zeros((out_fake.size(0))).cuda(self.gpu)
+            ad_true_loss = nn.functional.binary_cross_entropy_with_logits(out_real, all1)
+            ad_fake_loss = nn.functional.binary_cross_entropy_with_logits(out_fake, all0)
+        loss_D = ad_true_loss + ad_fake_loss
+        return loss_D*self.lambda_D_content
+
+    def backward_G_GAN_content(self, z_content, discriminator_content):
+        outs = discriminator_content.forward(z_content)
+        for out in outs:
+            outputs_fake = torch.sigmoid(out)
+            all_half = 0.5*torch.ones((outputs_fake.size(0))).cuda(self.gpu)
+            ad_loss = nn.functional.binary_cross_entropy_with_logits(outputs_fake, all_half)
+        return ad_loss
+    
+    def backward_G_GAN(self, fake, netD):
+        outs_fake = netD.forward(fake)
+        loss_G = 0
+        for out_a in outs_fake:
+            outputs_fake = torch.sigmoid(out_a)
+            all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
+            loss_G += nn.functional.binary_cross_entropy_with_logits(outputs_fake, all_ones)
+        return loss_G
+
+    def backward_EG(self, x, y, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, discriminator_content, discriminator_LR, discriminator_HR):
+        # content Ladv for generator
+        loss_G_GAN_LRcontent = self.backward_G_GAN_content(content_LR, discriminator_content)*self.lambda_adv_anatomy_encoder
+        loss_G_GAN_HRcontent = self.backward_G_GAN_content(content_HR, discriminator_content)*self.lambda_adv_anatomy_encoder
+
+        # Ladv for generator
+        loss_G_GAN_LR = self.backward_G_GAN(fake_LR, discriminator_LR)*self.lambda_adv_generator
+        loss_G_GAN_HR = self.backward_G_GAN(fake_HR, discriminator_HR)*self.lambda_adv_generator
+
+        # KL loss - z_a
+        #loss_kl_za_LR = self._l2_regularize(z_fake_LR) * 0.01
+        loss_kl_za_LR = self._l2_regularize(z_LR) * self.lambda_reg # torch.Size([128, 8])
+        loss_kl_za_HR = self._l2_regularize(z_HR) * self.lambda_reg # torch.Size([128, 8])
+
+        # KL loss - z_c
+        loss_kl_zc_LR = self._l2_regularize(content_LR) * self.lambda_reg
+        loss_kl_zc_HR = self._l2_regularize(content_HR) * self.lambda_reg
+
+        # cross cycle consistency loss
+        loss_G_L1_LR = torch.nn.L1Loss()(est_LR, x) * self.lambda_cross_cycle
+        loss_G_L1_HR = torch.nn.L1Loss()(est_HR, y) * self.lambda_cross_cycle
+        loss_G_L1_LRLR = torch.nn.L1Loss()(fake_LRLR, x) * self.lambda_self
+        loss_G_L1_HRHR = torch.nn.L1Loss()(fake_HRHR, y) * self.lambda_self
+
+        loss_G_LR = loss_G_GAN_LR + \
+                loss_G_GAN_LRcontent + \
+                loss_G_L1_LRLR + \
+                loss_G_L1_LR + \
+                loss_kl_zc_LR + \
+                loss_kl_za_LR + \
+                loss_G_L1_HR #############
+        
+        loss_G_HR = loss_G_GAN_HR + \
+                loss_G_GAN_HRcontent + \
+                loss_G_L1_HRHR + \
+                loss_G_L1_HR + \
+                loss_kl_zc_HR + \
+                loss_kl_za_HR + \
+                loss_G_L1_LR ################
+        return(loss_G_LR, loss_G_HR)
+
+    def backward_G_alone(self,fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, z_random, discriminator_LR2, discriminator_HR2):
+        
+        if self.random_size!=0: 
+            # Ladv for generator
+            loss_G_GAN2_LR = self.backward_G_GAN(fake_LR_random, discriminator_LR2)
+            loss_G_GAN2_HR = self.backward_G_GAN(fake_HR_random, discriminator_HR2)
+            # latent regression loss
+            loss_z_L1_LR = torch.mean(torch.abs(z_random_LR - z_random)) * self.lambda_latent
+            loss_z_L1_HR = torch.mean(torch.abs(z_random_HR - z_random)) * self.lambda_latent
+
+            loss_z_L1 = loss_z_L1_LR + loss_z_L1_HR + loss_G_GAN2_LR + loss_G_GAN2_HR
+            loss_z_LR= loss_z_L1_LR + loss_G_GAN2_LR 
+            loss_z_HR= loss_z_L1_HR + loss_G_GAN2_HR
+
+            return loss_z_LR, loss_z_HR
+
+        else:
+            # latent regression loss
+            loss_z_L1_LR = torch.mean(torch.abs(z_random_LR - z_random)) * self.lambda_latent
+            loss_z_L1_HR = torch.mean(torch.abs(z_random_HR - z_random)) * self.lambda_latent
+
+            loss_z_L1 = loss_z_L1_LR + loss_z_L1_HR 
+            loss_z_LR= loss_z_L1_LR 
+            loss_z_HR= loss_z_L1_HR 
+            return loss_z_LR, loss_z_HR
+
+    def _l2_regularize(self, mu):
+        mu_2 = torch.pow(mu, 2)
+        encoding_loss = torch.mean(mu_2)
+        return encoding_loss
+      
+    def forward(self, manual_backward, log, optimizer, LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, discriminator_content, discriminator_LR, discriminator_HR, anatomy_encoder, modality_encoder, encode_content, encode_LR, encode_HR, generator_LR, generator_HR, discriminator_LR2=None, discriminator_HR2=None):
+        '''
+        The goal is to compute only the necessary thing at each step. Since this function is called for each training step, 
+        for every optimizer, we try to reduce the ocmputation time by compute only the needed functions
+        '''
+        encode_content.requires_grad_(False)
+        encode_LR.requires_grad_(False)
+        encode_HR.requires_grad_(False)
+        generator_LR.requires_grad_(False)
+        generator_HR.requires_grad_(False)
+        discriminator_LR.requires_grad_(False)
+        discriminator_HR.requires_grad_(False)
+        discriminator_content.requires_grad_(False)
+        loc = locals()
+
+        if self.random_size!= 0:
+            optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2 = optimizer
+            discriminator_LR2.requires_grad_(False)
+            discriminator_HR2.requires_grad_(False)
+
+            #optimizer_discriminator_LR2
+            optimizer_idx = 8
+            discriminator_LR2.requires_grad_(True)
+            for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+                loc['i']=i
+                exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+            exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+            log('Discriminateur 2 LR/T1', loc['loss'])
+            optimizer_discriminator_LR2.zero_grad()
+            manual_backward(loc['loss'])
+            optimizer_discriminator_LR2.step()
+            discriminator_LR2.requires_grad_(False)
+            
+            #optimizer_discriminator_HR2
+            optimizer_idx = 9
+            discriminator_HR2.requires_grad_(True)
+            for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+                loc['i']=i
+                exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][1])+")", globals(), loc)
+            exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+            log('Discriminateur 2 HR/T2', loc['loss'])
+            optimizer_discriminator_HR2.zero_grad()
+            manual_backward(loc['loss'])
+            optimizer_discriminator_HR2.step()
+            discriminator_HR2.requires_grad_(False)
+        else:
+            optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR = optimizer
+
+
+
+        # ENCODE CONTENT
+        optimizer_idx = 0
+        encode_content.requires_grad_(True)
+        for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+            loc['i']=i
+            exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+        exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+        log('Encodeur anatomie', loc['loss'])
+        optimizer_encode_content.zero_grad()
+        manual_backward(loc['loss'], retain_graph = True)
+        optimizer_encode_content.step()
+        encode_content.requires_grad_(False)
+
+        #encoder HR
+        optimizer_idx = 1
+        encode_HR.requires_grad_(True)
+        for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+            loc['i']=i
+            exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+        exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+        log('Encodeur HR/T2', loc['loss'])
+        optimizer_encode_HR.zero_grad()
+        manual_backward(loc['loss'], retain_graph = True)
+        optimizer_encode_HR.step()
+        encode_HR.requires_grad_(False)
+
+        #encoder LR
+        optimizer_idx = 2
+        encode_LR.requires_grad_(True)
+        for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+            loc['i']=i
+            exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+        exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+        log('Encodeur LR/T1', loc['loss'])
+        optimizer_encode_LR.zero_grad()
+        manual_backward(loc['loss'], retain_graph = True)
+        optimizer_encode_LR.step()
+        encode_LR.requires_grad_(False)
+
+        
+        #generator HR
+        optimizer_idx = 3
+        generator_HR.requires_grad_(True)
+        for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+            loc['i']=i
+            exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+        exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+        log('Generateur HR/T2', loc['loss'])
+        optimizer_generator_HR.zero_grad()
+        manual_backward(loc['loss'], retain_graph = True)
+        optimizer_generator_HR.step()
+        generator_HR.requires_grad_(False)
+        
+        #generator LR
+        optimizer_idx = 4
+        generator_LR.requires_grad_(True)
+        for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+            loc['i']=i
+            exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+        exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+        log('Generateur LR/T1', loc['loss'])
+        optimizer_generator_LR.zero_grad()
+        manual_backward(loc['loss'])
+        optimizer_generator_LR.step()
+        generator_LR.requires_grad_(False)
+        
+        #discriminator content
+        optimizer_idx = 5
+        discriminator_content.requires_grad_(True)
+        for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+            loc['i']=i
+            exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+        exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+        log('Discriminateur anatomie', loc['loss'])
+        nn.utils.clip_grad_norm_(discriminator_content.parameters(), 5)
+        optimizer_discriminator_content.zero_grad()
+        manual_backward(loc['loss'])
+        optimizer_discriminator_content.step()
+        discriminator_content.requires_grad_(False)
+        
+        #discriminateur LR
+        optimizer_idx = 6
+        discriminator_LR.requires_grad_(True)
+        for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+            loc['i']=i
+            exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+        exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+        log('Discriminateur LR/T1', loc['loss'])
+        optimizer_discriminator_LR.zero_grad()
+        manual_backward(loc['loss'])
+        optimizer_discriminator_LR.step()
+        discriminator_LR.requires_grad_(False)
+        
+        #discriminator HR
+        optimizer_idx = 7
+        discriminator_HR.requires_grad_(True)
+        for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+            loc['i']=i
+            exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][1])+")", globals(), loc)
+        exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+        log('Discriminateur HR/T2', loc['loss'])
+        optimizer_discriminator_HR.zero_grad()
+        manual_backward(loc['loss'])
+        optimizer_discriminator_HR.step()
+        discriminator_HR.requires_grad_(False)
+
+
+        encode_content.requires_grad_(True)
+        encode_LR.requires_grad_(True)
+        encode_HR.requires_grad_(True)
+        generator_LR.requires_grad_(True)
+        generator_HR.requires_grad_(True)
+        discriminator_LR.requires_grad_(True)
+        discriminator_HR.requires_grad_(True)
+        discriminator_content.requires_grad_(True)
+        if self.random_size != 0:
+            discriminator_LR2.requires_grad_(True)
+            discriminator_HR2.requires_grad_(True)
+        
+
+
+
+
+
+
+
 
 class DRIT(pl.LightningModule):
     #def __init__(self, criterion, learning_rate, optimizer_class, dataset, prefix, segmentation, gpu, mode, lambda_contrastive=1, reduce=False,  n_channels = 1, n_classes = 1, n_features = 32):
     def __init__(self, opt, prefix, isTrain):
         super().__init__()
+        self.automatic_optimization = False
         if isTrain:
             self.lr = opt.learning_rate
             self.lr_dcontent = self.lr / 2.5
@@ -1881,11 +2254,10 @@ class DRIT(pl.LightningModule):
             self.lambda_style_loss = opt.lambda_style_loss
             self.lambda_content_loss = opt.lambda_content_loss
 
-            self.custom_loss = Loss_DRIT_custom(opt, gpu=self.gpu)        
+            self.custom_loss = Loss_DRIT_custom_last_version(opt, gpu=self.gpu)        
 
 
     def getActivation(self,name):
-        # the hook signature
         def hook(model, input, output):
             self.activation[name] = output.detach()
         return hook
@@ -1936,7 +2308,7 @@ class DRIT(pl.LightningModule):
         content_fake_LR,content_fake_HR=self.encode_content.forward(fake_LR,fake_HR)
         return(fake_HR, fake_LR, content_HR, content_LR, z_HR, z_LR, z_fake_HR, z_fake_LR, content_fake_HR, content_fake_LR)
 
-
+    
     def configure_optimizers(self):
         if self.anatomy_encoder!='ResNet50':
             optimizer_encode_content=self.optimizer_class(self.encode_content.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
@@ -1956,11 +2328,12 @@ class DRIT(pl.LightningModule):
         if self.random_size!=0: 
             optimizer_discriminator_LR2 = self.optimizer_class(self.discriminator_LR2.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
             optimizer_discriminator_HR2 = self.optimizer_class(self.discriminator_HR2.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
-            self.OPTIMIZERS = [optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2]
-            return [optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2],[]
+            return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2
         else:
-            self.OPTIMIZERS = [optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR]
-            return [optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR],[]
+            return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR
+
+
+
 
     def prepare_batch(self, batch):
         return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA]
@@ -1976,6 +2349,7 @@ class DRIT(pl.LightningModule):
         y_random = y[:self.random_size]
         x = x[self.random_size:]
         y = y[self.random_size:]
+
         #disentanglement
         if self.modality_encoder == 'ResNet50' and self.anatomy_encoder=='ResNet50':
             h = self.encode_HR.layer1.register_forward_hook(self.getActivation('activation'))
@@ -1998,11 +2372,11 @@ class DRIT(pl.LightningModule):
         #generation
         fake_HR=self.generator_HR(content_LR, z_HR)
         fake_LR=self.generator_LR(content_HR, z_LR)
-
+        
         fake_HRHR=self.generator_HR(content_HR, z_HR)
         fake_LRLR=self.generator_LR(content_LR, z_LR)
         fake_LR_random=self.generator_LR(content_HR,z_random)
-        fake_HR_random=self.generator_LR(content_LR,z_random)
+        fake_HR_random=self.generator_HR(content_LR,z_random)
 
         #disentanglement
         if self.modality_encoder == 'ResNet50' and self.anatomy_encoder=='ResNet50':
@@ -2017,6 +2391,7 @@ class DRIT(pl.LightningModule):
             z_fake_LR=self.encode_LR(fake_LR)
             z_fake_HR=self.encode_HR(fake_HR)
             content_fake_LR, content_fake_HR=self.encode_content.forward(fake_LR, fake_HR)
+
         #generation
         est_HR=self.generator_HR(content_fake_LR, z_fake_HR)
         est_LR=self.generator_LR(content_fake_HR, z_fake_LR)
@@ -2026,15 +2401,14 @@ class DRIT(pl.LightningModule):
         return x, y, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, x_random, y_random
 
 
-
-
-
-    def training_step(self, batch, batch_idx, optimizer_idx):
+    def training_step(self, batch, batch_idx):
         LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random = self.infer_batch(batch)
 
         batch_size=LR.shape[0]
         self.true_label = torch.full((batch_size,), 1, dtype=torch.float)
         self.fake_label = torch.full((batch_size,), 0, dtype=torch.float)
+        # self.true_label=self.true_label.to(torch.device("cuda:"+str(self.gpu)))
+        # self.fake_label=self.fake_label.to(torch.device("cuda:"+str(self.gpu)))
         self.true_label=self.true_label.to(self.Device)
         self.fake_label=self.fake_label.to(self.Device)
 
@@ -2057,167 +2431,7 @@ class DRIT(pl.LightningModule):
             plt.savefig(os.path.join(self.saving_path, 'epoch-'+str(self.current_epoch)+'_batch_idx-'+str(batch_idx)+'.png'))
             plt.close()
         
-        loss_custom = self.custom_loss(self.log, optimizer_idx, LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, self.discriminator_content, self.discriminator_LR, self.discriminator_HR, self.anatomy_encoder, self.modality_encoder, self.discriminator_LR2, self.discriminator_HR2)
-        return(loss_custom)
-  
-
-
-    def cyclic_anatomy(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
-        return torch.nn.L1Loss()(content_HR, content_fake_LR)*self.lambda_cyclic_anatomy, torch.nn.L1Loss()(content_LR, content_fake_HR)*self.lambda_cyclic_anatomy
-    def cyclic_modality(self, z_LR, z_HR, z_fake_LR, z_fake_HR):
-        return torch.nn.L1Loss()(z_HR, z_fake_HR)*self.lambda_cyclic_modality , torch.nn.L1Loss()(z_LR, z_fake_LR)*self.lambda_cyclic_modality
-
-    def n_pair(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
-        L = N_pair_Loss()
-        batch_size = content_HR.shape[0]
-        content_LR = content_LR.reshape(batch_size, -1)
-        content_HR = content_HR.reshape(batch_size, -1)
-        content_fake_LR = content_fake_LR.reshape(batch_size, -1)
-        content_fake_HR = content_fake_HR.reshape(batch_size, -1)
-
-        content_LR_norm = torch.nn.functional.normalize(content_LR, dim=1) # borne les vecteurs pour qu'ils aient une norme de 1
-        content_HR_norm = torch.nn.functional.normalize(content_HR, dim=1)
-        content_fake_LR_norm = torch.nn.functional.normalize(content_fake_LR, dim=1)
-        content_fake_HR_norm = torch.nn.functional.normalize(content_fake_HR, dim=1)
-        loss_anat = L(features1 = content_HR_norm, features2=content_LR_norm)*self.lambda_Npair
-        loss_anatfake = L(features1 = content_fake_HR_norm, features2=content_fake_LR_norm)*self.lambda_Npair
-
-        return loss_anat, loss_anatfake
-
-
-    def contrastive_loss(self, z_LR, z_HR, z_fake_LR, z_fake_HR):
-        L = SupervisedContrastiveLoss()
-        batch_size = z_HR.shape[0]
-        # labels = torch.cat([torch.full((batch_size,), 0, dtype=torch.float), torch.full((batch_size,), 1, dtype=torch.float)], dim=0).to(torch.device("cuda:"+str(self.gpu)))
-        labels = torch.cat([torch.full((batch_size,), 0, dtype=torch.float), torch.full((batch_size,), 1, dtype=torch.float)], dim=0).to(self.Device)
-        
-        z_LR = z_LR.reshape(batch_size, -1)
-        z_HR = z_HR.reshape(batch_size, -1)
-        z_fake_LR = z_fake_LR.reshape(batch_size, -1)
-        z_fake_HR = z_fake_HR.reshape(batch_size, -1)
-
-        modality_norm = torch.nn.functional.normalize(torch.cat([z_HR, z_LR], dim = 0).unsqueeze(1), dim = 2)
-        modalityfake_norm = torch.nn.functional.normalize(torch.cat([z_fake_HR, z_fake_LR], dim = 0).unsqueeze(1), dim = 2)
-        loss_modality = L(features = modality_norm, labels = labels)*self.lambda_contrastive_modality
-        loss_modalityfake = L(features = modalityfake_norm, labels = labels)*self.lambda_contrastive_modality
-        return loss_modality, loss_modalityfake
-
-
-    def backward_D_domain(self, netD, real, fake):
-        pred_fake = netD.forward(fake.detach())
-        pred_real = netD.forward(real)
-        loss_D = 0
-        for it, (out_a, out_b) in enumerate(zip(pred_fake, pred_real)):
-            out_fake = torch.sigmoid(out_a)
-            out_real = torch.sigmoid(out_b)
-            all0 = torch.zeros_like(out_fake).cuda(self.gpu)
-            all1 = torch.ones_like(out_real).cuda(self.gpu)
-            ad_fake_loss = nn.functional.binary_cross_entropy_with_logits(out_fake, all0)
-            ad_true_loss = nn.functional.binary_cross_entropy_with_logits(out_real, all1)
-            loss_D += ad_true_loss + ad_fake_loss
-        return loss_D*self.lambda_D_domain
-
-    def backward_D_content(self, imageA, imageB):
-        pred_fake = self.discriminator_content.forward(imageA.detach())
-        pred_real = self.discriminator_content.forward(imageB.detach())
-        for it, (out_a, out_b) in enumerate(zip(pred_fake, pred_real)):
-            out_fake = torch.sigmoid(out_a)
-            out_real = torch.sigmoid(out_b)
-            all1 = torch.ones((out_real.size(0))).cuda(self.gpu)
-            all0 = torch.zeros((out_fake.size(0))).cuda(self.gpu)
-            ad_true_loss = nn.functional.binary_cross_entropy_with_logits(out_real, all1)
-            ad_fake_loss = nn.functional.binary_cross_entropy_with_logits(out_fake, all0)
-        loss_D = ad_true_loss + ad_fake_loss
-        return loss_D*self.lambda_D_content
-
-    def backward_G_GAN_content(self, z_content):
-        outs = self.discriminator_content.forward(z_content)
-        for out in outs:
-            outputs_fake = torch.sigmoid(out)
-            all_half = 0.5*torch.ones((outputs_fake.size(0))).cuda(self.gpu)
-            ad_loss = nn.functional.binary_cross_entropy_with_logits(outputs_fake, all_half)
-        return ad_loss
-
-    def backward_G_GAN(self, fake, netD):
-        outs_fake = netD.forward(fake)
-        loss_G = 0
-        for out_a in outs_fake:
-            outputs_fake = torch.sigmoid(out_a)
-            all_ones = torch.ones_like(outputs_fake).cuda(self.gpu)
-            loss_G += nn.functional.binary_cross_entropy_with_logits(outputs_fake, all_ones)
-        return loss_G
-
-    def backward_EG(self, x, y, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR):
-        # content Ladv for generator
-        loss_G_GAN_LRcontent = self.backward_G_GAN_content(content_LR)*self.lambda_adv_anatomy_encoder
-        loss_G_GAN_HRcontent = self.backward_G_GAN_content(content_HR)*self.lambda_adv_anatomy_encoder
-
-        # Ladv for generator
-        loss_G_GAN_LR = self.backward_G_GAN(fake_LR, self.discriminator_LR)*self.lambda_adv_generator
-        loss_G_GAN_HR = self.backward_G_GAN(fake_HR, self.discriminator_HR)*self.lambda_adv_generator
-
-        # KL loss - z_a
-        #loss_kl_za_LR = self._l2_regularize(z_fake_LR) * 0.01
-        loss_kl_za_LR = self._l2_regularize(z_LR) * self.lambda_reg # torch.Size([128, 8])
-        loss_kl_za_HR = self._l2_regularize(z_HR) * self.lambda_reg # torch.Size([128, 8])
-
-        # KL loss - z_c
-        loss_kl_zc_LR = self._l2_regularize(content_LR) * self.lambda_reg
-        loss_kl_zc_HR = self._l2_regularize(content_HR) * self.lambda_reg
-
-        # cross cycle consistency loss
-        loss_G_L1_LR = torch.nn.L1Loss()(est_LR, x) * self.lambda_cross_cycle
-        loss_G_L1_HR = torch.nn.L1Loss()(est_HR, y) * self.lambda_cross_cycle
-        loss_G_L1_LRLR = torch.nn.L1Loss()(fake_LRLR, x) * self.lambda_self
-        loss_G_L1_HRHR = torch.nn.L1Loss()(fake_HRHR, y) * self.lambda_self
-
-        loss_G_LR = loss_G_GAN_LR + \
-                loss_G_GAN_LRcontent + \
-                loss_G_L1_LRLR + \
-                loss_G_L1_LR + \
-                loss_kl_zc_LR + \
-                loss_kl_za_LR + \
-                loss_G_L1_HR #############
-
-        loss_G_HR = loss_G_GAN_HR + \
-                loss_G_GAN_HRcontent + \
-                loss_G_L1_HRHR + \
-                loss_G_L1_HR + \
-                loss_kl_zc_HR + \
-                loss_kl_za_HR + \
-                loss_G_L1_LR ################
-        return(loss_G_LR, loss_G_HR)
-
-    def backward_G_alone(self,fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, z_random):
-        
-        if self.random_size!=0: 
-            # Ladv for generator
-            loss_G_GAN2_LR = self.backward_G_GAN(fake_LR_random, self.discriminator_LR2)
-            loss_G_GAN2_HR = self.backward_G_GAN(fake_HR_random, self.discriminator_HR2)
-            # latent regression loss
-            loss_z_L1_LR = torch.mean(torch.abs(z_random_LR - z_random)) * self.lambda_latent
-            loss_z_L1_HR = torch.mean(torch.abs(z_random_HR - z_random)) * self.lambda_latent
-
-            loss_z_L1 = loss_z_L1_LR + loss_z_L1_HR + loss_G_GAN2_LR + loss_G_GAN2_HR
-            loss_z_LR= loss_z_L1_LR + loss_G_GAN2_LR 
-            loss_z_HR= loss_z_L1_HR + loss_G_GAN2_HR
-
-            return loss_z_LR, loss_z_HR
-
-        else:
-            # latent regression loss
-            loss_z_L1_LR = torch.mean(torch.abs(z_random_LR - z_random)) * self.lambda_latent
-            loss_z_L1_HR = torch.mean(torch.abs(z_random_HR - z_random)) * self.lambda_latent
-
-            loss_z_L1 = loss_z_L1_LR + loss_z_L1_HR 
-            loss_z_LR= loss_z_L1_LR 
-            loss_z_HR= loss_z_L1_HR 
-            return loss_z_LR, loss_z_HR
-
-    def _l2_regularize(self, mu):
-        mu_2 = torch.pow(mu, 2)
-        encoding_loss = torch.mean(mu_2)
-        return encoding_loss
+        self.custom_loss(self.manual_backward, self.log, self.optimizers(), LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, self.discriminator_content, self.discriminator_LR, self.discriminator_HR, self.anatomy_encoder, self.modality_encoder, self.encode_content, self.encode_LR, self.encode_HR, self.generator_LR, self.generator_HR, self.discriminator_LR2, self.discriminator_HR2)
     
     def get_z_random(self, size, random_type='gauss'):
         z = torch.randn(size).cuda(self.gpu)
@@ -2243,7 +2457,7 @@ class DRIT(pl.LightningModule):
         plt.imshow(est_HR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
         plt.subplot(2,3,6)
         plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
-        plt.savefig('/home/claire/Nets_Reconstruction/Images_Test/'+'validation_epoch-'+str(self.current_epoch)+'.png')
+        plt.savefig(os.path.join(self.saving_path,'validation_epoch-'+str(self.current_epoch)+'.png'))
         plt.close()
         
         loss = self.criterion(est_HR, y)
