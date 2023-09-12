@@ -10,7 +10,8 @@ class TrainOptions(base_options.BaseOptions):
     def initialize(self, parser):
         parser = base_options.BaseOptions.initialize(self, parser)
         # Training
-        parser.add_argument('--seed', help='Set to true to set the determinist mode', type=bool, required=False, default=True)
+        parser.add_argument('--seed', help='Set to true to set the determinist mode', action='store_true')
+        parser.add_argument('--no-seed', help='Set to False the determinist mode',dest='seed', action='store_false')
         parser.add_argument('-e', '--epochs', help='Max epochs', type=int, required=False, default = 150)
         parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 64)
         parser.add_argument('-g', '--gpu', help='Number of the GPU to use', type=int, required=False, default = 0)
@@ -56,4 +57,3 @@ class TrainOptions(base_options.BaseOptions):
 
         self.isTrain = True
         return(parser)
-    
