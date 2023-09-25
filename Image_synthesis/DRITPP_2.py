@@ -27,7 +27,6 @@ import glob
 from pytorch_lightning.loggers import TensorBoardLogger, tensorboard
 import argparse
 
-
 def get_scheduler(optimizer, opts, cur_ep=-1):
     epoch=50
     def lambda_rule(ep):
@@ -122,7 +121,7 @@ class MisINSResBlock(nn.Module):
         o2 = self.blk1(torch.cat([o1, z_expand], dim=1))
         o3 = self.conv2(o2)
         out = self.blk2(torch.cat([o3, z_expand], dim=1))
-        out += residual
+        out = out + residual
         return out
 
 class ReLUINSConvTranspose2d(nn.Module):
@@ -389,8 +388,6 @@ class AdaAttN(nn.Module):
         activation = self.activation(content)
         gamma = self.predict_gamma(activation)
         beta = self.predict_beta(activation)
-        print("beta shape: ", beta.shape)
-        print('gamma shape: ', gamma.shape)
 
         out = style_normalized * (1 + gamma) + beta
         return(out)    
@@ -418,11 +415,7 @@ class AdaAttNResBlock(nn.Module):
         self.lrelu = nn.LeakyReLU(negative_slope=2e-1, inplace=True)
 
     def forward(self, x, z):
-        print("x shape: ", x.shape) # torch.Size([64, 256, 16, 16])
-        print("z shape: ", z.shape) # torch.Size([64, 256, 10])
-
         z = self.mlp(z)
-        print("z shape after mlp: ", z.shape)
         z = torch.reshape(z.unsqueeze(-1), [z.shape[0], x.shape[1], x.shape[2], x.shape[3]])
         
 
@@ -463,7 +456,6 @@ class Generator_AdaAttN(nn.Module):
             ReLUINSConvTranspose2d(self.n_channels, self.n_channels//2, kernel_size=3, stride=2, padding=1, output_padding=1),
             ReLUINSConvTranspose2d(self.n_channels//2, self.n_channels//4, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.ConvTranspose2d(self.n_channels//4, self.n_classes, kernel_size=1, stride=1, padding=0), 
-            #nn.Tanh()
         )
 
 
@@ -503,7 +495,6 @@ class SPADE(nn.Module):
         
     def forward(self, style, content):
         style_normalized = self.bn(style)
-
         activation = self.activation(content)
         gamma = self.predict_gamma(activation)
         beta = self.predict_beta(activation)
@@ -542,6 +533,7 @@ class SPADEResBlock(nn.Module):
         z = self.mlp(z)
         print("z shape after mlp: ", z.shape)
         z = torch.reshape(z.unsqueeze(-1), [z.shape[0], x.shape[1], x.shape[2], x.shape[3]])
+        
 
         skip_connection = z
         z = self.spade(style=z, content=x)
@@ -588,6 +580,7 @@ class Generator_SPADE(nn.Module):
         z=self.mlp(z)
         z=z.view((x.shape[0], x.shape[1],-1))
         z1, z2 = torch.split(z, self.tch_add, dim=2)
+        
         z1, z2 = z1.contiguous(), z2.contiguous()
         out1 = self.resbloc1(x, z1)
         out2 = self.resbloc2(out1, z2)
@@ -607,13 +600,12 @@ class AdaIN(nn.Module):
         assert content.shape[:2] == style.shape[:2] # channel wise mean and variance (batch size + channel)
         mean_style=torch.mean(style, dim=2)
         std_style=torch.std(style, dim=2)
-        mean_content=torch.mean(content, dim=(2,3)) 
-        std_content=torch.std(content, dim=(2,3))
+        mean_content=torch.mean(content, dim=(2,3))
+        std_content=torch.std(content, dim=(2,3)) 
 
         normalized_content=(content - mean_content.unsqueeze(-1).unsqueeze(-1).expand(content.shape)) / std_content.unsqueeze(-1).unsqueeze(-1).expand(content.shape) #!!!!!!!!!!!!!!
         out=normalized_content * std_style.unsqueeze(-1).unsqueeze(-1).expand(normalized_content.shape) + mean_style.unsqueeze(-1).unsqueeze(-1).expand(normalized_content.shape)
         return(out)
-
 
 class AdaINResBlock(nn.Module):
     def __init__(self, in_planes, out_planes):
@@ -630,7 +622,6 @@ class AdaINResBlock(nn.Module):
         x=self.relu(x)
         skip_connection=x
         x=self.conv2(x)
-        # print('Question: est ce que la BN agot comme une normalisation sur n,c sur les features maps? auquel cas le virer du bloc adain')
         x=self.bn(x)
         x=self.adain(x, z)
         x=self.relu(x)
@@ -710,7 +701,8 @@ class Generator_Concat(nn.Module):
         self.n_classes=n_classes
         self.n_features=n_features
         self.tch_add=10
-        
+
+        #self.mlp=multi_layer_perceptron()
         self.resbloc1=BasicResBlock(self.n_channels, self.n_channels)
         self.resbloc2=BasicResBlock(self.n_channels, self.n_channels)
         self.up=nn.Sequential(
@@ -741,7 +733,6 @@ class FiLM(nn.Module):
         gamma=gamma.unsqueeze(-1).unsqueeze(-1)
         beta=beta.unsqueeze(-1).unsqueeze(-1)
         out = gamma * x + beta # beta et gamma doivent avoir le meme nombre de nombres que la feature map a de channels -> un coeff par channel
-
         return out 
 
 class FiLMResBlock(nn.Module):
@@ -955,7 +946,6 @@ class Discriminateur_content_reduce(nn.Module):
 class Discriminateur(nn.Module):
     def __init__(self, n_channels = 1, n_layers = 6, n_features = 64):
         super(Discriminateur, self).__init__()
-        # initialement, n_layers=6
         self.n_features=n_features
         self.n_channels=n_channels
         self.n_layers=n_layers
@@ -1001,7 +991,6 @@ class Discriminateur_reduce(nn.Module):
 class Discriminateur_reduceplus(nn.Module):
     def __init__(self, n_channels = 1, n_layers = 4, n_features = 64):
         super(Discriminateur_reduceplus, self).__init__()
-        # initialement, n_layers=6
         self.n_features=n_features
         self.n_channels=n_channels
         self.n_layers=n_layers
@@ -1076,8 +1065,6 @@ class SupervisedContrastiveLoss(nn.Module):
             A loss scalar.
         """
 
-        # print("In contrastive loss")
-
         if len(features.shape) < 3:
             raise ValueError('`features` needs to be [bsz, n_views, ...],'
                              'at least 3 dimensions are required')
@@ -1088,6 +1075,7 @@ class SupervisedContrastiveLoss(nn.Module):
         if labels is not None and mask is not None:
             raise ValueError('Cannot define both `labels` and `mask`')
         elif labels is None and mask is None:
+            # mask = torch.eye(batch_size, dtype=torch.float32).to(torch.device("cuda:"+str(self.gpu)))
             mask = torch.eye(batch_size, dtype=torch.float32).to(self.Device)
         elif labels is not None:
             labels = labels.contiguous().view(-1, 1)
@@ -1118,10 +1106,8 @@ class SupervisedContrastiveLoss(nn.Module):
         logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
         logits = anchor_dot_contrast - logits_max.detach()
 
-
         # tile mask
         mask = mask.repeat(anchor_count, contrast_count)
-
         logits_mask = torch.scatter(
             torch.ones_like(mask),
             1,
@@ -1412,6 +1398,7 @@ class Loss_DRIT_custom(nn.Module):
 
         self.RETURNS_PER_NETWORK = [e[:-1] for e in self.RETURNS_PER_NETWORK]
 
+
     def cyclic_anatomy(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
         return torch.nn.L1Loss()(content_HR, content_fake_LR)*self.lambda_cyclic_anatomy, torch.nn.L1Loss()(content_LR, content_fake_HR)*self.lambda_cyclic_anatomy
      
@@ -1520,6 +1507,7 @@ class Loss_DRIT_custom(nn.Module):
         loss_G_L1_LRLR = torch.nn.L1Loss()(fake_LRLR, x) * self.lambda_self
         loss_G_L1_HRHR = torch.nn.L1Loss()(fake_HRHR, y) * self.lambda_self
 
+
         loss_G_LR = loss_G_GAN_LR + \
                 loss_G_GAN_LRcontent + \
                 loss_G_L1_LRLR + \
@@ -1535,6 +1523,7 @@ class Loss_DRIT_custom(nn.Module):
                 loss_kl_zc_HR + \
                 loss_kl_za_HR + \
                 loss_G_L1_LR ################
+
         return(loss_G_LR, loss_G_HR)
 
     def backward_G_alone(self,fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, z_random, discriminator_LR2, discriminator_HR2):
@@ -1684,7 +1673,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
         self.random_size = opt.random_size
         self.gpu = gpu
         Number_of_networks = 10
-
+        
         self.LOSSES = [None for i in range(Number_of_networks)] # contient toutes les loss
         self.LOSS_RETURNS = [None for i in range(Number_of_networks)] # contient les param de retour des loss
         self.LOSSES_PER_NETWORKS = [[] for i in range(Number_of_networks)] # contient les indices des loss de self.LOSSES à utiliser pour un réseau
@@ -1840,6 +1829,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
     def contrastive_loss(self, z_LR, z_HR, z_fake_LR, z_fake_HR):
         L = SupervisedContrastiveLoss()
         batch_size = z_HR.shape[0]
+        # labels = torch.cat([torch.full((batch_size,), 0, dtype=torch.float), torch.full((batch_size,), 1, dtype=torch.float)], dim=0).to(torch.device("cuda:"+str(self.gpu)))
         labels = torch.cat([torch.full((batch_size,), 0, dtype=torch.float), torch.full((batch_size,), 1, dtype=torch.float)], dim=0).to(self.Device)
         
         z_LR = z_LR.reshape(batch_size, -1)
@@ -1962,6 +1952,12 @@ class Loss_DRIT_custom_last_version(nn.Module):
             loss_z_L1 = loss_z_L1_LR + loss_z_L1_HR 
             loss_z_LR= loss_z_L1_LR 
             loss_z_HR= loss_z_L1_HR 
+            # loss_z_L1.backward()
+            # self.l1_recon_z_loss_a = loss_z_L1_a.item()
+            # self.l1_recon_z_loss_b = loss_z_L1_b.item()
+
+            # self.gan2_loss_a = loss_G_GAN2_A.item()
+            # self.gan2_loss_b = loss_G_GAN2_B.item()
             return loss_z_LR, loss_z_HR
 
     def _l2_regularize(self, mu):
@@ -2223,7 +2219,7 @@ class DRIT(pl.LightningModule):
         self.discriminator_content=Discriminateur_content_reduce()
         self.discriminator_LR=Discriminateur_reduceplus()
         self.discriminator_HR=Discriminateur_reduceplus()
-        
+    
 
         if self.random_size!=0:
             print("Utilise les doubles discriminateurs")
@@ -2258,6 +2254,7 @@ class DRIT(pl.LightningModule):
 
 
     def getActivation(self,name):
+        # the hook signature
         def hook(model, input, output):
             self.activation[name] = output.detach()
         return hook
@@ -2308,7 +2305,7 @@ class DRIT(pl.LightningModule):
         content_fake_LR,content_fake_HR=self.encode_content.forward(fake_LR,fake_HR)
         return(fake_HR, fake_LR, content_HR, content_LR, z_HR, z_LR, z_fake_HR, z_fake_LR, content_fake_HR, content_fake_LR)
 
-    
+
     def configure_optimizers(self):
         if self.anatomy_encoder!='ResNet50':
             optimizer_encode_content=self.optimizer_class(self.encode_content.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
@@ -2328,8 +2325,10 @@ class DRIT(pl.LightningModule):
         if self.random_size!=0: 
             optimizer_discriminator_LR2 = self.optimizer_class(self.discriminator_LR2.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
             optimizer_discriminator_HR2 = self.optimizer_class(self.discriminator_HR2.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
+            # self.OPTIMIZERS = [optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2]
             return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2
         else:
+            # self.OPTIMIZERS = [optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR]
             return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR
 
 
@@ -2349,14 +2348,9 @@ class DRIT(pl.LightningModule):
         y_random = y[:self.random_size]
         x = x[self.random_size:]
         y = y[self.random_size:]
-
         #disentanglement
         if self.modality_encoder == 'ResNet50' and self.anatomy_encoder=='ResNet50':
             h = self.encode_HR.layer1.register_forward_hook(self.getActivation('activation'))
-            print(x.shape)
-            #test = x.expand(x.shape[0], 3, x.shape[2], x.shape[3])
-            # print(torch.equal(test[:,0,:,:], test[:,1,:,:]) and torch.equal(test[:,0,:,:], test[:,2,:,:]))
-            # sys.exit()
             out=self.encode_HR(x.expand(x.shape[0], 3, x.shape[2], x.shape[3]))
             z_LR = self.activation['activation']
             out=self.encode_HR(y.expand(x.shape[0], 3, x.shape[2], x.shape[3]))
@@ -2401,14 +2395,14 @@ class DRIT(pl.LightningModule):
         return x, y, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, x_random, y_random
 
 
+
+
+
     def training_step(self, batch, batch_idx):
         LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random = self.infer_batch(batch)
-
         batch_size=LR.shape[0]
         self.true_label = torch.full((batch_size,), 1, dtype=torch.float)
         self.fake_label = torch.full((batch_size,), 0, dtype=torch.float)
-        # self.true_label=self.true_label.to(torch.device("cuda:"+str(self.gpu)))
-        # self.fake_label=self.fake_label.to(torch.device("cuda:"+str(self.gpu)))
         self.true_label=self.true_label.to(self.Device)
         self.fake_label=self.fake_label.to(self.Device)
 
