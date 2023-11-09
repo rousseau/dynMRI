@@ -10,7 +10,6 @@ class TestOptions(base_options.BaseOptions):
         parser.add_argument('-i', '--input', help='Input image', type=str, required=True)
         parser.add_argument('-m', '--model', help='Path to the model folder', type=str, required=True)
         parser.add_argument('-o', '--output', help='Output image', type=str, required=True)
-        #parser.add_argument('-p', '--patch_size', help='Patch size', type=int, required=False, default = (64,64,1))
         parser.add_argument('--patch_overlap', help='Patch overlap', type=int, required=False, default = (0,0,0))
         parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 2)
         parser.add_argument('-g', '--ground_truth', help='Ground truth for metric computation', type=str, required=False)
@@ -22,8 +21,7 @@ class TestOptions(base_options.BaseOptions):
 
         DRIT_parser = subparsers.add_parser("DRIT", help="DRIT mode parser")
         DRIT_parser.add_argument('--mode', help='Mode to use (for DRIT or CycleGAN): reconstruction or degradation', type=str,required=False, default='reconstruction')
-        DRIT_parser.add_argument('--use_reduce', help='for Disentangled_plusplus, set to True for using light architecture', type=bool,required=False, default=True)
-        DRIT_parser.add_argument('--latents', help='Get latent variables', type=bool,required=False, default=False)
+        DRIT_parser.add_argument('--latents', help='Get latent variables', action='store_true')
         
         Degradation_parser = subparsers.add_parser("Degradation", help="Degradation mode parser")
         Degradation_parser.add_argument('--data_mode', help='(Pseudo) Paired or Unpaired setting', type=str, required=False, default='Paired')
