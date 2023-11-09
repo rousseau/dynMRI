@@ -611,24 +611,6 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
                 subject['static_2']=rotation(subject['static_2'])
                 subjects.append(subject)
 
-        #         print(s)
-        #         # print('\t '+str(subject['static_1'][tio.DATA].shape))
-        #         # print('\t compteur = '+str(compteur))
-        #         # print('\t ligne = '+str(compteur//3))
-        #         # print('\t colonne original = '+str(2*(compteur%3)))
-        #         # print('\t colonne rotated = '+str(2*(compteur%3)+1))
-        #         axis[compteur//3, 2*(compteur%3)].imshow(subject['static_1'][tio.DATA][0,:,:,80], cmap="gray")
-        #         axis[compteur//3, 2*(compteur%3)+1].imshow(subject['static_2'][tio.DATA][0,:,:,80], cmap="gray")
-        #         axis[compteur//3, 2*(compteur%3)].set_title('original static - '+s, size = 4)
-        #         axis[compteur//3, 2*(compteur%3)+1].set_title('rotated - '+s, size = 4)
-        #         axis[compteur//3, 2*(compteur%3)].axis('off')
-        #         axis[compteur//3, 2*(compteur%3)+1].axis('off')
-        #         compteur = compteur +1
-
-        # figure.tight_layout()
-        # figure.savefig('/home/claire/Nets_Reconstruction/Test_rotation.png', dpi = 400)
-        # plt.close()
-        # sys.exit()
         
     elif data == 'monomodal_dynamic_256':
         check_subjects=[]
@@ -728,7 +710,7 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
     elif data == 'bone_segmentation_equinus_256':
         check_subjects=[]
         data_path='/home/claire/Equinus_BIDS_dataset/data_025_8/'
-        bones_seg_path=os.path.join(data_path, '1bone_segmentation_downcrop')
+        bones_seg_path=os.path.join(data_path, '1_bone_fuse_segmentation_downcrop')
         out_channels = 1 #4
         HR_path=os.path.join(data_path, 'correct_registration_downcrop','256')
         LR_path=os.path.join(data_path, 'dynamic_downcrop','256')
@@ -748,35 +730,17 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
                             for i in range(len(HR_files)):
                                 HR=HR_files[i]
                                 file=HR.split('/')[-1].replace('_registration','_footmask_registration').replace('.nii.gz','_bin.nii.gz')
-                                SEG=os.path.join(HR_path,s,seq,file)
-                                CALCA_SEG = os.path.join(bones_seg_path, s, seq, HR.split('/')[-1].replace('.nii.gz','_seg-calcaneus.nii.gz'))
-                                TALUS_SEG = os.path.join(bones_seg_path, s, seq, HR.split('/')[-1].replace('.nii.gz','_seg-talus.nii.gz'))
-                                TIBIA_SEG = os.path.join(bones_seg_path, s, seq, HR.split('/')[-1].replace('.nii.gz','_seg-tibia.nii.gz'))
-                                
-                                print(SEG)
-                                print(LR)
-                                print(HR)
-                                print(CALCA_SEG)
-                                print(TIBIA_SEG)
-                                print(TALUS_SEG)
-                                sys.exit()
-                                
-                                # print('LR: '+LR)
-                                # print('HR: '+HR)
-                                # print('footmask: '+SEG)
-                                # print('3 bones seg: '+BONES_SEG)
-
-                                # sys.exit()
+                                label=os.path.join(HR_path,s,seq,file)
+                                SEG = os.path.join(bones_seg_path, s, seq, HR.split('/')[-1].replace('.nii.gz','_3-labels-bones.nii.gz'))
+      
                                 if s not in check_subjects:
                                     check_subjects.append(s)
                                 subject=tio.Subject(
                                     subject_name=s,
                                     LR_image=tio.ScalarImage(LR),
                                     HR_image=tio.ScalarImage(HR),
-                                    label=tio.LabelMap(SEG), 
-                                    calcaneus_segmentation=tio.LabelMap(CALCA_SEG),
-                                    talus_segmentation=tio.LabelMap(TALUS_SEG),
-                                    tibia_segmentation=tio.LabelMap(TIBIA_SEG)
+                                    label=tio.LabelMap(label), 
+                                    segmentations = tio.LabelMap(SEG)
                                 )
                                 subjects.append(subject)
                         else:
@@ -1083,3 +1047,4 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
     else:
         sys.exit('Non conform data name')
     return(subjects, check_subjects)
+
