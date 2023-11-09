@@ -11,7 +11,7 @@ class TrainOptions(base_options.BaseOptions):
         parser = base_options.BaseOptions.initialize(self, parser)
         # Training
         parser.add_argument('--seed', help='Set to true to set the determinist mode', action='store_true')
-        parser.add_argument('--no-seed', help='Set to False the determinist mode',dest='seed', action='store_false')
+        parser.add_argument('--seed_value', help="value of the seed", type=int, required=False, default=1)
         parser.add_argument('-e', '--epochs', help='Max epochs', type=int, required=False, default = 150)
         parser.add_argument('-b', '--batch_size', help='Batch size', type=int, required=False, default = 64)
         parser.add_argument('-g', '--gpu', help='Number of the GPU to use', type=int, required=False, default = 0)
@@ -32,7 +32,6 @@ class TrainOptions(base_options.BaseOptions):
 
         subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")
         DRIT_parser = subparsers.add_parser("DRIT", help="DRIT mode parser")
-        # Losses weights
         DRIT_parser.add_argument('--lambda_cyclic_anatomy', help='cyclic loss poderation on the anatomy latent space', type=int, required=False, default=0)
         DRIT_parser.add_argument('--lambda_cyclic_modality', help='cyclic loss ponderation on the anatomy latent space', type=int, required=False, default = 0)
         DRIT_parser.add_argument('--lambda_D_content', help='ponderaton on the adversarial loss applied on the anatomy latent space', type=int, required=False, default=1)
@@ -47,10 +46,8 @@ class TrainOptions(base_options.BaseOptions):
         DRIT_parser.add_argument('--lambda_adv_generator', help='', type=int, required=False, default = 1)
         DRIT_parser.add_argument('--lambda_style_loss', help='ponderation for style loss inspired from those used in arbitrary style transfer', type=int, required=False, default=0)
         DRIT_parser.add_argument('--lambda_content_loss', help='ponderation for content loss inspired from those used in arbitrary style transfer', type=int, required=False, default=0)
-
+        DRIT_parser.add_argument('--lambda_segmentation_loss', help='ponderation for segmentation loss as en auxialiary task', type=int, required=False, default=0)
         
-        
-        #Degradation_parser.add_argument('--', help='', type=int, required=False, default=0)
         Degradation_parser = subparsers.add_parser("Degradation", help="Degradation mode parser")
         Degradation_parser.add_argument('--data_mode', help='(Pseudo) Paired or Unpaired setting', type=str, required=False, default='Paired')
         Degradation_parser.add_argument('--net', help='Unet or ResNet for paired synthesis or as generator for GAN', type=str, required=False, default='UNet')
