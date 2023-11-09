@@ -8,7 +8,7 @@ from torch.optim import lr_scheduler
 from torchio.data import image
 from torchio.utils import check_sequence
 home = expanduser("~")
-
+import functools
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -23,6 +23,7 @@ from torchvision.models import resnet50
 matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import glob
+import monai
 
 from pytorch_lightning.loggers import TensorBoardLogger, tensorboard
 import argparse
@@ -425,7 +426,7 @@ class AdaAttNResBlock(nn.Module):
         z = self.conv1(z)
         z = self.adaattn(style = z, content = x)
         z = self.lrelu(z)
-        z= self.conv2(z)
+        z = self.conv2(z)
 
         out = z + skip_connection
         return out
@@ -456,6 +457,7 @@ class Generator_AdaAttN(nn.Module):
             ReLUINSConvTranspose2d(self.n_channels, self.n_channels//2, kernel_size=3, stride=2, padding=1, output_padding=1),
             ReLUINSConvTranspose2d(self.n_channels//2, self.n_channels//4, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.ConvTranspose2d(self.n_channels//4, self.n_classes, kernel_size=1, stride=1, padding=0), 
+            #nn.Tanh()
         )
 
 
@@ -495,6 +497,7 @@ class SPADE(nn.Module):
         
     def forward(self, style, content):
         style_normalized = self.bn(style)
+
         activation = self.activation(content)
         gamma = self.predict_gamma(activation)
         beta = self.predict_beta(activation)
@@ -527,11 +530,7 @@ class SPADEResBlock(nn.Module):
         self.lrelu = nn.LeakyReLU(negative_slope=2e-1, inplace=True)
 
     def forward(self, x, z):
-        print("x shape: ", x.shape) # torch.Size([64, 256, 16, 16])
-        print("z shape: ", z.shape) # torch.Size([64, 256, 10])
-
         z = self.mlp(z)
-        print("z shape after mlp: ", z.shape)
         z = torch.reshape(z.unsqueeze(-1), [z.shape[0], x.shape[1], x.shape[2], x.shape[3]])
         
 
@@ -601,11 +600,13 @@ class AdaIN(nn.Module):
         mean_style=torch.mean(style, dim=2)
         std_style=torch.std(style, dim=2)
         mean_content=torch.mean(content, dim=(2,3))
-        std_content=torch.std(content, dim=(2,3)) 
+        std_content=torch.std(content, dim=(2,3))
 
         normalized_content=(content - mean_content.unsqueeze(-1).unsqueeze(-1).expand(content.shape)) / std_content.unsqueeze(-1).unsqueeze(-1).expand(content.shape) #!!!!!!!!!!!!!!
         out=normalized_content * std_style.unsqueeze(-1).unsqueeze(-1).expand(normalized_content.shape) + mean_style.unsqueeze(-1).unsqueeze(-1).expand(normalized_content.shape)
         return(out)
+
+
 
 class AdaINResBlock(nn.Module):
     def __init__(self, in_planes, out_planes):
@@ -627,6 +628,53 @@ class AdaINResBlock(nn.Module):
         x=self.relu(x)
         x=x+skip_connection
         return x
+    
+class AdaINResBlock_bis(nn.Module):
+    def conv3x3(self, dim_in, dim_out, stride=1):
+        return nn.Sequential(nn.ReflectionPad2d(1), nn.Conv2d(dim_in, dim_out, kernel_size=3, stride=stride))
+    def conv1x1(self, dim_in, dim_out):
+        return nn.Conv2d(dim_in, dim_out, kernel_size=1, stride=1, padding=0)
+    
+    def __init__(self, dim, dim_extra, stride=1, dropout=0.0):
+        super(AdaINResBlock_bis, self).__init__()
+        self.conv1 = nn.Sequential(
+            self.conv3x3(dim, dim, stride),
+            nn.InstanceNorm2d(dim))
+        self.conv2 = nn.Sequential(
+            self.conv3x3(dim, dim, stride),
+            nn.InstanceNorm2d(dim))
+        self.blk1 = nn.Sequential(
+            self.conv1x1(dim + dim_extra, dim + dim_extra),
+            nn.ReLU(inplace=False),
+            self.conv1x1(dim + dim_extra, dim),
+            nn.ReLU(inplace=False))
+        self.blk2 = nn.Sequential(
+            self.conv1x1(dim + dim_extra, dim + dim_extra),
+            nn.ReLU(inplace=False),
+            self.conv1x1(dim + dim_extra, dim),
+            nn.ReLU(inplace=False))
+        model = []
+        if dropout > 0:
+            model += [nn.Dropout(p=dropout)]
+        self.model = nn.Sequential(*model)
+        self.model.apply(gaussian_weights_init)
+        self.conv1.apply(gaussian_weights_init)
+        self.conv2.apply(gaussian_weights_init)
+        self.blk1.apply(gaussian_weights_init)
+        self.blk2.apply(gaussian_weights_init)
+
+        self.adain=AdaIN()
+
+    def forward(self, x, z):
+        residual = x
+        z_expand = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), x.size(2), x.size(3))
+        o1 = self.conv1(x)
+        o2 = self.blk1(self.adain(x,z))
+        o3 = self.conv2(o2)
+        out = self.blk2(torch.cat([o3, z_expand], dim=1))
+        out += residual
+        return out
+
 
 class Generator_AdaIN(nn.Module):
     def __init__(self, latent_dim=8, w_dim=256, n_channels = 256, n_classes = 1, n_features = 32):
@@ -668,6 +716,43 @@ class Generator_AdaIN(nn.Module):
         out = self.up(out2)
         return out
     
+class Generator_AdaIN_1(nn.Module):
+    def __init__(self, latent_dim=8, w_dim=256, n_channels = 256, n_classes = 1, n_features = 32):
+        super(Generator_AdaIN_1, self).__init__()
+        self.latent_dim=latent_dim
+        self.w_dim=w_dim
+        self.n_channels=n_channels
+        self.n_classes=n_classes
+        self.n_features=n_features
+        self.tch_add=256
+
+        def multi_layer_perceptron():
+            return nn.Sequential(
+                nn.Linear(self.latent_dim,256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, 256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, self.n_channels*10)
+                )
+
+        self.mlp=multi_layer_perceptron()
+        self.resbloc1=AdaINResBlock(self.n_channels, self.n_channels)
+        self.resbloc2=AdaINResBlock(self.n_channels, self.n_channels)
+        self.up=nn.Sequential(
+            ReLUINSConvTranspose2d(self.n_channels, self.n_channels//2, kernel_size=3, stride=2, padding=1, output_padding=1),
+            ReLUINSConvTranspose2d(self.n_channels//2, self.n_channels//4, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(self.n_channels//4, self.n_classes, kernel_size=1, stride=1, padding=0), 
+        )
+
+
+    def forward(self, x, z):
+        z=self.mlp(z)
+        z=z.view((x.shape[0], x.shape[1],-1))
+        out1 = self.resbloc1(x, z)
+        out2 = self.resbloc2(out1, z)
+        out = self.up(out2)
+        return out
+    
 
 #########################################################################################################################################################################
 ###### CONCAT ###########################################################################################################################################################
@@ -702,7 +787,6 @@ class Generator_Concat(nn.Module):
         self.n_features=n_features
         self.tch_add=10
 
-        #self.mlp=multi_layer_perceptron()
         self.resbloc1=BasicResBlock(self.n_channels, self.n_channels)
         self.resbloc2=BasicResBlock(self.n_channels, self.n_channels)
         self.up=nn.Sequential(
@@ -733,6 +817,7 @@ class FiLM(nn.Module):
         gamma=gamma.unsqueeze(-1).unsqueeze(-1)
         beta=beta.unsqueeze(-1).unsqueeze(-1)
         out = gamma * x + beta # beta et gamma doivent avoir le meme nombre de nombres que la feature map a de channels -> un coeff par channel
+
         return out 
 
 class FiLMResBlock(nn.Module):
@@ -741,7 +826,8 @@ class FiLMResBlock(nn.Module):
 
         def predict_parameters():
             return nn.Sequential(
-                nn.Linear(8, out_planes*2),
+                #nn.Linear(8, out_planes*2),
+                nn.Linear(256, out_planes*2),
                 nn.LeakyReLU(negative_slope=0.3, inplace=True), 
                 nn.Linear(out_planes*2, out_planes*2)
             ) 
@@ -774,7 +860,15 @@ class Generator_FiLM(nn.Module):
         self.n_classes = n_classes
         self.n_features = n_features
         self.tch_add=256
+        def multi_layer_perceptron():
+            return nn.Sequential(
+                nn.Linear(8,256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, 256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, self.n_channels*2))
 
+        self.mlp=multi_layer_perceptron()
         self.resbloc1=FiLMResBlock(self.n_channels, self.n_channels)
         self.resbloc2=FiLMResBlock(self.n_channels, self.n_channels)
         self.up=nn.Sequential(
@@ -783,12 +877,49 @@ class Generator_FiLM(nn.Module):
             nn.ConvTranspose2d(self.n_channels//4, self.n_classes, kernel_size=1, stride=1, padding=0), 
         )
     def forward(self, x, z):
+        z=self.mlp(z)
+        z1, z2 = torch.split(z, self.tch_add, dim=1)
+        z1, z2 = z1.contiguous(), z2.contiguous()
+        out1 = self.resbloc1(x, z1)
+        out2 = self.resbloc2(out1, z2)
+        out = self.up(out2)
+        return out
+
+class Generator_FiLM_1(nn.Module):
+    def __init__(self, n_channels = 256, n_classes = 1, n_features = 32):
+        super(Generator_FiLM_1, self).__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.n_features = n_features
+        self.tch_add=256
+
+        def multi_layer_perceptron():
+            return nn.Sequential(
+                nn.Linear(8,256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, 256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, self.n_channels))
+
+        self.mlp=multi_layer_perceptron()
+        self.resbloc1=FiLMResBlock(self.n_channels, self.n_channels)
+        self.resbloc2=FiLMResBlock(self.n_channels, self.n_channels)
+        self.up=nn.Sequential(
+            ReLUINSConvTranspose2d(self.n_channels, self.n_channels//2, kernel_size=3, stride=2, padding=1, output_padding=1),
+            ReLUINSConvTranspose2d(self.n_channels//2, self.n_channels//4, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(self.n_channels//4, self.n_classes, kernel_size=1, stride=1, padding=0), 
+        )
+    def forward(self, x, z):
+        z=self.mlp(z)
         out1 = self.resbloc1(x, z)
         out2 = self.resbloc2(out1, z)
         out = self.up(out2)
         return out
 
 
+#########################################################################################################################################################################
+###### DRIT #############################################################################################################################################################
+#########################################################################################################################################################################
 
 class Generator_feature(nn.Module):
     def __init__(self, n_channels = 256, n_classes = 1, n_features = 32):
@@ -903,6 +1034,39 @@ class Generator_feature_reduceplus(nn.Module):
         out2 = self.resbloc2(out1, z2)
         out = self.up(out2)
         return out
+    
+class Generator_feature_reduceplus_1(nn.Module):
+    def __init__(self, n_channels = 256, n_classes = 1, n_features = 32):
+        super(Generator_feature_reduceplus_1, self).__init__()
+        self.n_channels = n_channels
+        self.n_classes = n_classes
+        self.n_features = n_features
+        self.tch_add=256
+
+        def multi_layer_perceptron():
+            return nn.Sequential(
+                nn.Linear(8,256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, 256),
+                nn.ReLU(inplace=True),
+                nn.Linear(256, self.n_channels))
+
+        self.mlp=multi_layer_perceptron()
+        self.resbloc1=MisINSResBlock(self.n_channels, self.n_channels)
+        self.resbloc2=MisINSResBlock(self.n_channels, self.n_channels)
+        self.up=nn.Sequential(
+            ReLUINSConvTranspose2d(self.n_channels, self.n_channels//2, kernel_size=3, stride=2, padding=1, output_padding=1),
+            ReLUINSConvTranspose2d(self.n_channels//2, self.n_channels//4, kernel_size=3, stride=2, padding=1, output_padding=1),
+            nn.ConvTranspose2d(self.n_channels//4, self.n_classes, kernel_size=1, stride=1, padding=0), 
+            #nn.Tanh()
+        )
+
+    def forward(self, x, z):
+        z=self.mlp(z)
+        out1 = self.resbloc1(x, z)
+        out2 = self.resbloc2(out1, z)
+        out = self.up(out2)
+        return out
 
 
 
@@ -989,17 +1153,19 @@ class Discriminateur_reduce(nn.Module):
 
 
 class Discriminateur_reduceplus(nn.Module):
-    def __init__(self, n_channels = 1, n_layers = 4, n_features = 64):
+    def __init__(self, n_channels = 1, n_layers = 4, n_features = 64, norm = 'None'):
         super(Discriminateur_reduceplus, self).__init__()
         self.n_features=n_features
         self.n_channels=n_channels
         self.n_layers=n_layers
         model=[]
-        model+=[LeakyReLUConv2d(self.n_channels, self.n_features, kernel_size=3, stride=2, padding=1, norm='None')]
+        model+=[LeakyReLUConv2d(self.n_channels, self.n_features, kernel_size=3, stride=2, padding=1, norm=norm)]
         features=self.n_features
-        for i in range(1,self.n_layers):
-            model += [LeakyReLUConv2d(features, features * 2, kernel_size=3, stride=2, padding=1, norm='None')]
+        for i in range(1,self.n_layers-1):
+            model += [LeakyReLUConv2d(features, features * 2, kernel_size=3, stride=2, padding=1, norm=norm)]
             features*=2        
+        model += [LeakyReLUConv2d(features, features * 2, kernel_size=3, stride=2, padding=1, norm='None')]
+        features*=2 
         model += [nn.Conv2d(features, 1, kernel_size=1, stride=1, padding=0)]
         self.model=nn.Sequential(*model)
         
@@ -1010,7 +1176,117 @@ class Discriminateur_reduceplus(nn.Module):
         outs.append(out)
         return(outs)
 
+class NLayerDiscriminator(nn.Module):
+    """Defines a PatchGAN discriminator"""
 
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
+        """Construct a PatchGAN discriminator
+
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            ndf (int)       -- the number of filters in the last conv layer
+            n_layers (int)  -- the number of conv layers in the discriminator
+            norm_layer      -- normalization layer
+        """
+        super(NLayerDiscriminator, self).__init__()
+        if type(norm_layer) == functools.partial:  # no need to use bias as BatchNorm2d has affine parameters
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+
+        kw = 4
+        padw = 1
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):  # gradually increase the number of filters
+            nf_mult_prev = nf_mult
+            nf_mult = min(2 ** n, 8)
+            sequence += [
+                nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias),
+                norm_layer(ndf * nf_mult),
+                nn.LeakyReLU(0.2, True)
+            ]
+
+        nf_mult_prev = nf_mult
+        nf_mult = min(2 ** n_layers, 8)
+        sequence += [
+            nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias),
+            norm_layer(ndf * nf_mult),
+            nn.LeakyReLU(0.2, True)
+        ]
+
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]  # output 1 channel prediction map
+        self.model = nn.Sequential(*sequence)
+
+    def forward(self, input):
+        """Standard forward."""
+        return self.model(input)
+    
+
+class Bloc_UNet(nn.Module):
+    def __init__(self, in_features, out_features):
+        super(Bloc_UNet, self).__init__()
+        model = []
+        model += [
+            nn.Conv2d(in_channels=in_features, out_channels=out_features, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(num_features=out_features),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=out_features, out_channels=out_features, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(num_features=out_features),
+            nn.ReLU(inplace=True)
+        ]
+        self.model = nn.Sequential(*model)
+
+    def forward(self, input):
+        return self.model(input)
+
+
+class UNet(nn.Module):
+    def __init__(self, n_channels=256, n_classes=2, n_features=8): # besoin de lui fournir les images complétes en 256 pour la segmentation pour qu'il ait une idée du contexte. On tente en 64 avec les os indifférenciés 
+        super(UNet, self).__init__()
+
+        self.maxpool=nn.MaxPool2d(kernel_size=2)
+        self.up=nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+
+        self.bloc_1=Bloc_UNet(in_features=n_channels, out_features=n_features) #16
+        self.bloc_2=Bloc_UNet(in_features=n_features, out_features=n_features) #8
+        self.bloc_3=Bloc_UNet(in_features=n_features, out_features=n_features) #4
+        self.bloc_4=Bloc_UNet(in_features=n_features*2, out_features=n_features) #8
+        self.bloc_5=Bloc_UNet(in_features=n_features*2, out_features=n_features) #16
+        self.bloc_6=Bloc_UNet(in_features=n_features, out_features=n_features) #32
+
+        self.conv_out=nn.Conv2d(in_channels=n_features, out_channels=n_classes, kernel_size=1) #64
+
+    def forward(self, x):
+        x1= self.bloc_1(x)
+
+        x2=self.maxpool(x1)
+        x2=self.bloc_2(x2)
+
+        x3=self.maxpool(x2)
+        x3=self.bloc_3(x3)
+
+        x4=self.up(x3)
+        x4=torch.cat([x4, x2], dim=1)
+        x4=self.bloc_4(x4)
+
+        x5=self.up(x4)
+        x5=torch.cat([x5, x1], dim=1)
+        x5=self.bloc_5(x5)
+
+        x6=self.up(x5)
+        x6=self.bloc_6(x6)
+        x7=self.up(x6)
+        out=self.conv_out(x7)
+        
+        return out
+
+#######################################################################################################################################################################################################################
+############ LOSSES ###################################################################################################################################################################################################
+#######################################################################################################################################################################################################################
+
+    
 class N_pair_Loss(nn.Module):
     """N-pair loss: https://papers.nips.cc/paper/2016/file/6b180037abbebea991d8b1232f8a8ca9-Paper.pdf.
     """
@@ -1028,7 +1304,6 @@ class N_pair_Loss(nn.Module):
         dot_product = torch.matmul(features1, features2.T)
         mask_positive = torch.diag(torch.ones(SHAPE[0])).to(self.Device)
         mask_negative = torch.ones(SHAPE[0], SHAPE[0]).to(self.Device) - mask_positive
-        
         positive_dot_product = torch.diagonal(dot_product * mask_positive).unsqueeze(0).T
         negative_dot_product = torch.subtract(dot_product, positive_dot_product)
         log_prob = torch.log(torch.sum(torch.exp(negative_dot_product)*mask_negative, 1) + torch.ones(SHAPE[0]).to(self.Device))
@@ -1075,7 +1350,6 @@ class SupervisedContrastiveLoss(nn.Module):
         if labels is not None and mask is not None:
             raise ValueError('Cannot define both `labels` and `mask`')
         elif labels is None and mask is None:
-            # mask = torch.eye(batch_size, dtype=torch.float32).to(torch.device("cuda:"+str(self.gpu)))
             mask = torch.eye(batch_size, dtype=torch.float32).to(self.Device)
         elif labels is not None:
             labels = labels.contiguous().view(-1, 1)
@@ -1106,6 +1380,7 @@ class SupervisedContrastiveLoss(nn.Module):
         logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
         logits = anchor_dot_contrast - logits_max.detach()
 
+
         # tile mask
         mask = mask.repeat(anchor_count, contrast_count)
         logits_mask = torch.scatter(
@@ -1127,7 +1402,6 @@ class SupervisedContrastiveLoss(nn.Module):
         # loss
         loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
         loss = loss.view(anchor_count, batch_size).mean()
-
         return loss
 
 
@@ -1249,10 +1523,6 @@ class CSloss_arbitrary_style_transfer(nn.Module):
             style_loss += nn.MSELoss()(torch.mean(stylized_relu), torch.mean(style_relu)) + nn.MSELoss()(torch.std(stylized_relu), torch.std(style_relu))
 
         return style_loss*self.lambda_style, content_loss*self.lambda_content
-
-
-
-
 
 
 
@@ -1507,7 +1777,6 @@ class Loss_DRIT_custom(nn.Module):
         loss_G_L1_LRLR = torch.nn.L1Loss()(fake_LRLR, x) * self.lambda_self
         loss_G_L1_HRHR = torch.nn.L1Loss()(fake_HRHR, y) * self.lambda_self
 
-
         loss_G_LR = loss_G_GAN_LR + \
                 loss_G_GAN_LRcontent + \
                 loss_G_L1_LRLR + \
@@ -1523,7 +1792,6 @@ class Loss_DRIT_custom(nn.Module):
                 loss_kl_zc_HR + \
                 loss_kl_za_HR + \
                 loss_G_L1_LR ################
-
         return(loss_G_LR, loss_G_HR)
 
     def backward_G_alone(self,fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, z_random, discriminator_LR2, discriminator_HR2):
@@ -1671,9 +1939,10 @@ class Loss_DRIT_custom_last_version(nn.Module):
     def __init__(self, opt, gpu):#, OPTIMIZERS):
         super(Loss_DRIT_custom_last_version, self).__init__()
         self.random_size = opt.random_size
+        self.use_segmentation_network = opt.use_segmentation_network
         self.gpu = gpu
-        Number_of_networks = 10
-        
+        Number_of_networks = 11
+
         self.LOSSES = [None for i in range(Number_of_networks)] # contient toutes les loss
         self.LOSS_RETURNS = [None for i in range(Number_of_networks)] # contient les param de retour des loss
         self.LOSSES_PER_NETWORKS = [[] for i in range(Number_of_networks)] # contient les indices des loss de self.LOSSES à utiliser pour un réseau
@@ -1800,8 +2069,20 @@ class Loss_DRIT_custom_last_version(nn.Module):
             self.RETURNS_PER_NETWORK[8] += 'loss_D2_+'
             self.RETURNS_PER_NETWORK[9] += 'loss_D2_+'
 
-        self.RETURNS_PER_NETWORK = [e[:-1] for e in self.RETURNS_PER_NETWORK]
+        if opt.use_segmentation_network:
+            self.lambda_segmentation_loss = opt.lambda_segmentation_loss
+            self.LOSSES[10] = self.segmentation_loss
+            self.LOSS_INPUTS[10] = ['segmentation_predict, segmentation']
+            self.LOSS_RETURNS[10] = 'segmentation_loss'
+            self.LOSSES_PER_NETWORKS[10].append(10)
+            self.LOSSES_PER_NETWORKS[0].append(10)
+            self.RETURNS_PER_NETWORK[10] += 'segmentation_loss+'
+            self.RETURNS_PER_NETWORK[0] += 'segmentation_loss+'
 
+        self.RETURNS_PER_NETWORK = [e[:-1] for e in self.RETURNS_PER_NETWORK] # pour virer le + à la fin
+
+    def segmentation_loss(self, prediction, ground_truth):
+        return torch.nn.BCEWithLogitsLoss()(prediction, ground_truth.half())
 
     def cyclic_anatomy(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
         return torch.nn.L1Loss()(content_HR, content_fake_LR)*self.lambda_cyclic_anatomy, torch.nn.L1Loss()(content_LR, content_fake_HR)*self.lambda_cyclic_anatomy
@@ -1829,7 +2110,6 @@ class Loss_DRIT_custom_last_version(nn.Module):
     def contrastive_loss(self, z_LR, z_HR, z_fake_LR, z_fake_HR):
         L = SupervisedContrastiveLoss()
         batch_size = z_HR.shape[0]
-        # labels = torch.cat([torch.full((batch_size,), 0, dtype=torch.float), torch.full((batch_size,), 1, dtype=torch.float)], dim=0).to(torch.device("cuda:"+str(self.gpu)))
         labels = torch.cat([torch.full((batch_size,), 0, dtype=torch.float), torch.full((batch_size,), 1, dtype=torch.float)], dim=0).to(self.Device)
         
         z_LR = z_LR.reshape(batch_size, -1)
@@ -1952,12 +2232,6 @@ class Loss_DRIT_custom_last_version(nn.Module):
             loss_z_L1 = loss_z_L1_LR + loss_z_L1_HR 
             loss_z_LR= loss_z_L1_LR 
             loss_z_HR= loss_z_L1_HR 
-            # loss_z_L1.backward()
-            # self.l1_recon_z_loss_a = loss_z_L1_a.item()
-            # self.l1_recon_z_loss_b = loss_z_L1_b.item()
-
-            # self.gan2_loss_a = loss_G_GAN2_A.item()
-            # self.gan2_loss_b = loss_G_GAN2_B.item()
             return loss_z_LR, loss_z_HR
 
     def _l2_regularize(self, mu):
@@ -1965,7 +2239,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
         encoding_loss = torch.mean(mu_2)
         return encoding_loss
       
-    def forward(self, manual_backward, log, optimizer, LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, discriminator_content, discriminator_LR, discriminator_HR, anatomy_encoder, modality_encoder, encode_content, encode_LR, encode_HR, generator_LR, generator_HR, discriminator_LR2=None, discriminator_HR2=None):
+    def forward(self, manual_backward, log, optimizer, LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, discriminator_content, discriminator_LR, discriminator_HR, anatomy_encoder, modality_encoder, encode_content, encode_LR, encode_HR, generator_LR, generator_HR, discriminator_LR2=None, discriminator_HR2=None, segmentation=None, segmentation_predict=None, segmentation_net=None):
         '''
         The goal is to compute only the necessary thing at each step. Since this function is called for each training step, 
         for every optimizer, we try to reduce the ocmputation time by compute only the needed functions
@@ -1980,7 +2254,51 @@ class Loss_DRIT_custom_last_version(nn.Module):
         discriminator_content.requires_grad_(False)
         loc = locals()
 
-        if self.random_size!= 0:
+        if self.random_size!= 0 and self.use_segmentation_network:
+            optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2, optimizer_segmentation_net = optimizer
+            discriminator_LR2.requires_grad_(False)
+            discriminator_HR2.requires_grad_(False)
+            segmentation_net.requires_grad_(False)
+
+            #optimizer_discriminator_LR2
+            optimizer_idx = 8
+            discriminator_LR2.requires_grad_(True)
+            for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+                loc['i']=i
+                exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+            exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+            log('Discriminateur 2 LR/T1', loc['loss'])
+            optimizer_discriminator_LR2.zero_grad()
+            manual_backward(loc['loss'])
+            optimizer_discriminator_LR2.step()
+            discriminator_LR2.requires_grad_(False)
+            
+            #optimizer_discriminator_HR2
+            optimizer_idx = 9
+            discriminator_HR2.requires_grad_(True)
+            for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+                loc['i']=i
+                exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][1])+")", globals(), loc)
+            exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+            log('Discriminateur 2 HR/T2', loc['loss'])
+            optimizer_discriminator_HR2.zero_grad()
+            manual_backward(loc['loss'])
+            optimizer_discriminator_HR2.step()
+            discriminator_HR2.requires_grad_(False)
+
+            optimizer_idx = 10
+            segmentation_net.requires_grad_(True)
+            for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+                loc['i']=i
+                exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+            exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+            log('Segmentation network', loc['loss'])
+            optimizer_segmentation_net.zero_grad()
+            manual_backward(loc['loss'], retain_graph = True)
+            optimizer_segmentation_net.step()
+            segmentation_net.requires_grad_(False)
+
+        elif self.random_size != 0 and (not self.use_segmentation_network):
             optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2 = optimizer
             discriminator_LR2.requires_grad_(False)
             discriminator_HR2.requires_grad_(False)
@@ -2010,10 +2328,26 @@ class Loss_DRIT_custom_last_version(nn.Module):
             manual_backward(loc['loss'])
             optimizer_discriminator_HR2.step()
             discriminator_HR2.requires_grad_(False)
-        else:
+
+        elif self.random_size == 0 and self.use_segmentation_network:
+            optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_segmentation_net = optimizer
+            optimizer_idx = 10
+            segmentation_net.requires_grad_(True)
+            for i in self.LOSSES_PER_NETWORKS[optimizer_idx]:
+                loc['i']=i
+                exec(str(self.LOSS_RETURNS[i])+" = self.LOSSES[i]("+str(self.LOSS_INPUTS[i][0])+")", globals(), loc)
+            exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
+            log('Segmentation network', loc['loss'])
+            optimizer_segmentation_net.zero_grad()
+            manual_backward(loc['loss'], retain_graph=True)
+            optimizer_segmentation_net.step()
+            segmentation_net.requires_grad_(False)
+
+        elif self.random_size == 0 and (not self.use_segmentation_network):
             optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR = optimizer
-
-
+            
+        else:
+            sys.exit('Error: please check the last version of the custom loss')
 
         # ENCODE CONTENT
         optimizer_idx = 0
@@ -2133,17 +2467,18 @@ class Loss_DRIT_custom_last_version(nn.Module):
         if self.random_size != 0:
             discriminator_LR2.requires_grad_(True)
             discriminator_HR2.requires_grad_(True)
+        if self.use_segmentation_network:
+            segmentation_net.requires_grad_(True)
         
 
 
 
 
-
-
-
+##########################################################################################################################################################################################################
+######### MODEL ##########################################################################################################################################################################################
+##########################################################################################################################################################################################################
 
 class DRIT(pl.LightningModule):
-    #def __init__(self, criterion, learning_rate, optimizer_class, dataset, prefix, segmentation, gpu, mode, lambda_contrastive=1, reduce=False,  n_channels = 1, n_classes = 1, n_features = 32):
     def __init__(self, opt, prefix, isTrain):
         super().__init__()
         self.automatic_optimization = False
@@ -2168,6 +2503,12 @@ class DRIT(pl.LightningModule):
 
         print('Method: ', opt.method)
 
+        self.use_segmentation_network = opt.use_segmentation_network
+        if opt.use_segmentation_network:
+            self.segmentation_net = UNet(n_classes=2)
+        else:
+            self.segmentation_net = None
+
 
         if opt.modality_encoder == 'DRITPP':
             self.encode_HR=Encoder_representation()
@@ -2179,13 +2520,9 @@ class DRIT(pl.LightningModule):
                 if params.requires_grad == True:
                     sys.exit('Requires grad = True in resnet50')
             self.encode_LR = self.encode_HR
-            # self.encode_LR = resnet50(pretrained=True)
-            # self.encode_LR.requires_grad_(requires_grad=False)
-
 
 
         if opt.anatomy_encoder == 'DRITPP_reduceplus':
-            #self.encode_content=Encoder_content_reduceplus()
             self.encode_content=Encoder_content_reduceplus()
         elif opt.anatomy_encoder == 'ResNet50' and opt.modality_encoder != 'ResNet50':
             self.encode_content = resnet50(pretrained=True)
@@ -2206,6 +2543,18 @@ class DRIT(pl.LightningModule):
             print('DRIT++ generator')
             self.generator_HR=Generator_feature_reduceplus()
             self.generator_LR=Generator_feature_reduceplus()
+        elif opt.method == 'FILM1':
+            print('FiLM generator')
+            self.generator_HR=Generator_FiLM_1()
+            self.generator_LR=Generator_FiLM_1()
+        elif opt.method=='ADAIN1':
+            print('AdaIN generator')
+            self.generator_HR=Generator_AdaIN_1()
+            self.generator_LR=Generator_AdaIN_1()
+        elif opt.method=='DRITPP1':
+            print('DRIT++ generator')
+            self.generator_HR=Generator_feature_reduceplus_1()
+            self.generator_LR=Generator_feature_reduceplus_1()
         elif opt.method=='Concat':
             print('Concat generator')
             self.generator_HR=Generator_Concat(n_channels=512)
@@ -2216,10 +2565,15 @@ class DRIT(pl.LightningModule):
         elif opt.method=='ADAATTN':
             print('AdaAttN Generator')
         
+
         self.discriminator_content=Discriminateur_content_reduce()
-        self.discriminator_LR=Discriminateur_reduceplus()
-        self.discriminator_HR=Discriminateur_reduceplus()
-    
+
+        if opt.discriminator == 'DRIT':
+            self.discriminator_LR=Discriminateur_reduceplus(norm=opt.norm_discrim)
+            self.discriminator_HR=Discriminateur_reduceplus(norm=opt.norm_discrim)
+        elif opt.discriminator == 'PatchGAN':
+            self.discriminator_HR = NLayerDiscriminator(input_nc=1, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d)
+            self.discriminator_LR = NLayerDiscriminator(input_nc=1, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d)
 
         if self.random_size!=0:
             print("Utilise les doubles discriminateurs")
@@ -2228,6 +2582,21 @@ class DRIT(pl.LightningModule):
         else:
             self.discriminator_HR2 = None
             self.discriminator_LR2 = None
+
+
+        if not opt.not_use_reduce:
+            self.discriminator_content=Discriminateur_content()
+            self.discriminator_LR=Discriminateur()
+            self.discriminator_HR=Discriminateur()
+            self.generator_HR = Generator_feature()
+            self.generator_LR = Generator_feature()
+            self.encode_content=Encoder_content()
+            if self.random_size!=0:
+                print("Utilise les doubles discriminateurs")
+                self.discriminator_HR2 = Discriminateur()
+                self.discriminator_LR2 = Discriminateur()
+
+
 
         if isTrain:
             self.lambda_cyclic_anatomy = opt.lambda_cyclic_anatomy
@@ -2254,7 +2623,6 @@ class DRIT(pl.LightningModule):
 
 
     def getActivation(self,name):
-        # the hook signature
         def hook(model, input, output):
             self.activation[name] = output.detach()
         return hook
@@ -2271,6 +2639,8 @@ class DRIT(pl.LightningModule):
         if self.random_size!=0:
             self.discriminator_LR2.apply(gaussian_weights_init)
             self.discriminator_HR2.apply(gaussian_weights_init)
+        if self.use_segmentation_network:
+            self.segmentation_net.apply(gaussian_weights_init)
 
 
     def forward(self, x, y):
@@ -2317,6 +2687,7 @@ class DRIT(pl.LightningModule):
         else:
             optimizer_encode_HR=None
             optimizer_encode_LR=None
+        
         optimizer_generator_HR=self.optimizer_class(self.generator_HR.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
         optimizer_generator_LR=self.optimizer_class(self.generator_LR.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
         optimizer_discriminator_content=self.optimizer_class(self.discriminator_content.parameters(), lr=self.lr_dcontent, betas=(0.5, 0.999), weight_decay=0.0001)
@@ -2325,21 +2696,34 @@ class DRIT(pl.LightningModule):
         if self.random_size!=0: 
             optimizer_discriminator_LR2 = self.optimizer_class(self.discriminator_LR2.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
             optimizer_discriminator_HR2 = self.optimizer_class(self.discriminator_HR2.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
-            # self.OPTIMIZERS = [optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2]
-            return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2
+            if self.use_segmentation_network: 
+                optimizer_segmentation_net = self.optimizer_class(self.segmentation_net.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
+                return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2, optimizer_segmentation_net
+            else:
+                return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2
+
         else:
-            # self.OPTIMIZERS = [optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR]
-            return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR
-
-
+            if self.use_segmentation_network: 
+                optimizer_segmentation_net = self.optimizer_class(self.segmentation_net.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
+                return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_segmentation_net
+            else:
+                return optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR
 
 
     def prepare_batch(self, batch):
-        return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA]
+        if self.use_segmentation_network:
+            return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA], batch['bones_segmentation'][tio.DATA]
+        else:
+            return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA]
 
 
     def infer_batch(self, batch):
-        x,y, mask = self.prepare_batch(batch)
+        if self.use_segmentation_network:
+            x, y, mask, segmentation = self.prepare_batch(batch)
+            segmentation= torch.permute(F.one_hot(segmentation.long().squeeze(1).squeeze(-1), 2), (0,3,1,2))
+        else:
+            x,y, mask = self.prepare_batch(batch)
+            segmentation = None
 
         x=x.squeeze(-1) 
         y=y.squeeze(-1)
@@ -2348,6 +2732,7 @@ class DRIT(pl.LightningModule):
         y_random = y[:self.random_size]
         x = x[self.random_size:]
         y = y[self.random_size:]
+
         #disentanglement
         if self.modality_encoder == 'ResNet50' and self.anatomy_encoder=='ResNet50':
             h = self.encode_HR.layer1.register_forward_hook(self.getActivation('activation'))
@@ -2363,6 +2748,11 @@ class DRIT(pl.LightningModule):
             content_LR,content_HR=self.encode_content.forward(x,y)
         z_random = self.get_z_random(z_LR.shape, 'gauss')
 
+        if self.use_segmentation_network:
+            segmentation_predict = self.segmentation_net(content_HR)
+        else:
+            segmentation_predict = None
+        
         #generation
         fake_HR=self.generator_HR(content_LR, z_HR)
         fake_LR=self.generator_LR(content_HR, z_LR)
@@ -2392,14 +2782,12 @@ class DRIT(pl.LightningModule):
         z_random_LR=self.encode_LR(fake_LR_random)
         z_random_HR=self.encode_HR(fake_HR_random)
 
-        return x, y, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, x_random, y_random
-
-
+        return x, y, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, x_random, y_random, segmentation, segmentation_predict
 
 
 
     def training_step(self, batch, batch_idx):
-        LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random = self.infer_batch(batch)
+        LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, segmentation, segmentation_predict = self.infer_batch(batch)
         batch_size=LR.shape[0]
         self.true_label = torch.full((batch_size,), 1, dtype=torch.float)
         self.fake_label = torch.full((batch_size,), 0, dtype=torch.float)
@@ -2425,7 +2813,7 @@ class DRIT(pl.LightningModule):
             plt.savefig(os.path.join(self.saving_path, 'epoch-'+str(self.current_epoch)+'_batch_idx-'+str(batch_idx)+'.png'))
             plt.close()
         
-        self.custom_loss(self.manual_backward, self.log, self.optimizers(), LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, self.discriminator_content, self.discriminator_LR, self.discriminator_HR, self.anatomy_encoder, self.modality_encoder, self.encode_content, self.encode_LR, self.encode_HR, self.generator_LR, self.generator_HR, self.discriminator_LR2, self.discriminator_HR2)
+        self.custom_loss(self.manual_backward, self.log, self.optimizers(), LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, self.discriminator_content, self.discriminator_LR, self.discriminator_HR, self.anatomy_encoder, self.modality_encoder, self.encode_content, self.encode_LR, self.encode_HR, self.generator_LR, self.generator_HR, self.discriminator_LR2, self.discriminator_HR2, segmentation, segmentation_predict, self.segmentation_net)
     
     def get_z_random(self, size, random_type='gauss'):
         z = torch.randn(size).cuda(self.gpu)
@@ -2434,26 +2822,65 @@ class DRIT(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         random_size = self.random_size
         self.random_size = 0
-        x, y, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, x_random, y_random = self.infer_batch(batch) # y_hat, x, y, mask = self.infer_batch(batch)  #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        x, y, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, segmentation, segmentation_predict = self.infer_batch(batch)        
         self.random_size = random_size
-        plt.figure()
-        plt.suptitle(self.prefix)
-        plt.subplot(2,3,1)
-        plt.imshow(x[0,0,:,:].cpu().detach().numpy(), cmap="gray")
-        plt.subplot(2,3,2)
-        plt.imshow(est_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
-        plt.subplot(2,3,3)
-        test=fake_HR
-        plt.imshow(test[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
-        plt.subplot(2,3,4)
-        plt.imshow(y[0,0,:,:].cpu().detach().numpy(), cmap="gray")
-        plt.subplot(2,3,5)
-        plt.imshow(est_HR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
-        plt.subplot(2,3,6)
-        plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
-        plt.savefig(os.path.join(self.saving_path,'validation_epoch-'+str(self.current_epoch)+'.png'))
-        plt.close()
         
-        loss = self.criterion(est_HR, y)
+        
+        if self.use_segmentation_network:
+            loss = self.criterion(est_HR, y) + monai.losses.DiceCELoss(include_background=False, softmax=True)(segmentation_predict, segmentation)
+            plt.figure()
+            plt.suptitle(self.prefix)
+            plt.subplot(2,4,1)
+            plt.title('Dynamic')
+            plt.imshow(x[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+            plt.subplot(2,4,2)
+            plt.title('Reconstruct dynamic')
+            plt.imshow(est_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.subplot(2,4,3)
+            plt.title('Synthetic static')
+            test=fake_HR
+            plt.imshow(test[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.subplot(2,4,4)
+            plt.title('GT segmentation')
+            plt.imshow(segmentation[0,1,:,:].cpu().detach().numpy().astype(float), cmap='gray')
+            plt.subplot(2,4,5)
+            plt.title('Static')
+            plt.imshow(y[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+            plt.subplot(2,4,6)
+            plt.title('Reconstruct static')
+            plt.imshow(est_HR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.subplot(2,4,7)
+            plt.title('Synthetic dynamic')
+            plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.subplot(2,4,8)
+            plt.title('Predicted segmentation')
+            plt.imshow(segmentation_predict[0,1,:,:].cpu().detach().numpy().astype(float), cmap='gray')
+            plt.savefig(os.path.join(self.saving_path,'validation_epoch-'+str(self.current_epoch)+'.png'))
+            plt.close()
+        else:
+            loss = self.criterion(est_HR, y)
+            plt.figure()
+            plt.suptitle(self.prefix)
+            plt.subplot(2,3,1)
+            plt.title('Dynamic')
+            plt.imshow(x[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+            plt.subplot(2,3,2)
+            plt.title('Reconstruct dynamic')
+            plt.imshow(est_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.subplot(2,3,3)
+            plt.title('Synthetic static')
+            test=fake_HR
+            plt.imshow(test[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.subplot(2,3,4)
+            plt.title('Static')
+            plt.imshow(y[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+            plt.subplot(2,3,5)
+            plt.title('Reconstruct static')
+            plt.imshow(est_HR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.subplot(2,3,6)
+            plt.title('Synthetic dynamic')
+            plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.savefig(os.path.join(self.saving_path,'validation_epoch-'+str(self.current_epoch)+'.png'))
+            plt.close()
         self.log('val_loss', loss)
         return loss
