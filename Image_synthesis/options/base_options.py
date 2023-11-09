@@ -49,7 +49,7 @@ class BaseOptions():
         setattr(opt, 'saving_path', recording_path+'/')
 
         if opt.use_segmentation_network:
-            setattr(opt, 'data', 'segmentation_equinus_256')
+            setattr(opt, 'data', 'bone_segmentation_equinus_256')
             if opt.lambda_segmentation_loss ==0:
                 warnings.warn("Warning: the use of segmentation network is set to True but the loss ponderation is defined to 0. Set to 1 by default.")
                 setattr(opt, 'lambda_segmentation_loss', 1)
