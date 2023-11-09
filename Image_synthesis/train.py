@@ -36,6 +36,10 @@ if __name__ == '__main__':
     print("Nombre de GPUs detectes: "+ str(torch.cuda.device_count()))
     args = TrainOptions().parse()
 
+    if args.seed:
+        print('Set seed: '+str(args.seed_value))
+        seed_everything(args.seed_value)
+
     training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
     num_epochs = args.epochs
     gpu = args.gpu
@@ -81,7 +85,6 @@ if __name__ == '__main__':
 
         #############################################################################################################################################################################""
         # TRANSFORMATIONS
-        #onehot = tio.OneHot()
         flip = tio.RandomFlip(axes=('LR',), flip_probability=0.5)
         bias = tio.RandomBiasField(coefficients = 0.5, p=0.5)
         noise = tio.RandomNoise(std=0.1, p=0.25)
@@ -92,8 +95,10 @@ if __name__ == '__main__':
 
         if (data=='dhcp_2mm' or data=='dhcp_1mm' or data=='dhcp_original'):
             normalization = tio.ZNormalization(masking_method='label')
+            #normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
             spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
 
+        #if data=='equinus_sourcedata' or data=='equinus_simulate':
         else:
             normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
             spatial = tio.RandomAffine(scales=0.1,degrees=(20,0,0), translation=0, p=0.75)
@@ -102,12 +107,15 @@ if __name__ == '__main__':
             normalization = tio.RescaleIntensity()
 
         transforms = [flip, spatial, bias, normalization, noise]
-        training_transform = tio.Compose(transforms)
+
+
+        training_transform = tio.Compose(transforms) 
         validation_transform = tio.Compose([normalization])   
+
+
 
         #############################################################################################################################################################################""
         # TRAIN AND VALIDATION SETS
-
         if (data=="equinus_256" or data=="bone_segmentation_equinus_256" or data=="segmentation_equinus_256" or data=='equinus_256_boneseg'):
             training_sub=['sub_E05', 'sub_T03', 'sub_T02', 'sub_T05', 'sub_T01', 'sub_T04', 'sub_E02', 'sub_E01', 'sub_T08', 'sub_E08', 'sub_E06']
             validation_sub=['sub_T06']
@@ -166,7 +174,6 @@ if __name__ == '__main__':
 
         #############################################################################################################################################################################""
         # PATCHES SETS
-        print('num_workers : '+str(num_workers))
         prefix += '_sampler_'+sampler
         if sampler=='Probabilities':
             probabilities = {0: 0, 1: 1}
@@ -235,10 +242,6 @@ if __name__ == '__main__':
     else:
         training_loader_patches, validation_loader_patches = load_data(data=data, segmentation=args.segmentation, batch_size=training_batch_size)
     #############################################################################################################################################################################""
-    if args.seed:
-        print('Set seed: 10')
-        seed_everything(10)
-
     print('')
     if args.subcommand == "DRIT":
         if (args.method != 'ddpm' and args.model is None):
@@ -279,8 +282,7 @@ if __name__ == '__main__':
             DICT = {k:(pretrained_dict[k] if (k in pretrained_dict.keys()) else model_dict[k]) for k in model_dict.keys()}
             net.load_state_dict(DICT)
 
-    # checkpoint_callback = ModelCheckpoint(filepath=output_path+'Checkpoint_'+prefix+'_{epoch}-{val_loss:.2f}')#, save_top_k=1, monitor=)
-    checkpoint_callback = ModelCheckpoint(dirpath=output_path)#, save_top_k=1, monitor=)
+    checkpoint_callback = ModelCheckpoint(dirpath=output_path)
 
     logger = TensorBoardLogger(save_dir = output_path, name = 'Test_logger',version=prefix)
 
@@ -297,7 +299,10 @@ if __name__ == '__main__':
             logger=logger,
             callbacks= checkpoint_callback, ##
             precision=16,
-            deterministic='warn'
+            deterministic='warn', 
+            devices = [0], 
+            # strategy ="ddp"
+            # strategy='ddp_find_unused_parameters_true'
         )
     else:
         trainer = pl.Trainer(
@@ -306,7 +311,10 @@ if __name__ == '__main__':
             #progress_bar_refresh_rate=20, ##
             logger=logger,
             callbacks= checkpoint_callback, ##
-            precision=16
+            precision=16, 
+            devices = [0], 
+            # strategy ="ddp"
+            # strategy='ddp_find_unused_parameters_true'
         )
 
     trainer.fit(net, training_loader_patches, validation_loader_patches)
@@ -314,3 +322,4 @@ if __name__ == '__main__':
     torch.save(net.state_dict(), output_path+prefix+'_torch.pt')
 
     print('Finished Training')
+
