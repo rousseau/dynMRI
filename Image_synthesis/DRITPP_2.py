@@ -2479,6 +2479,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
 ##########################################################################################################################################################################################################
 
 class DRIT(pl.LightningModule):
+    #def __init__(self, criterion, learning_rate, optimizer_class, dataset, prefix, segmentation, gpu, mode, lambda_contrastive=1, reduce=False,  n_channels = 1, n_classes = 1, n_features = 32):
     def __init__(self, opt, prefix, isTrain):
         super().__init__()
         self.automatic_optimization = False
@@ -2505,7 +2506,10 @@ class DRIT(pl.LightningModule):
 
         self.use_segmentation_network = opt.use_segmentation_network
         if opt.use_segmentation_network:
-            self.segmentation_net = UNet(n_classes=2)
+            if opt.data == 'segmentation_equinus_256':
+                self.segmentation_net = UNet(n_classes=2)
+            elif opt.data == 'bone_segmentation_equinus_256':
+                self.segmentation_net = UNet(n_classes=4)
         else:
             self.segmentation_net = None
 
@@ -2520,6 +2524,9 @@ class DRIT(pl.LightningModule):
                 if params.requires_grad == True:
                     sys.exit('Requires grad = True in resnet50')
             self.encode_LR = self.encode_HR
+            # self.encode_LR = resnet50(pretrained=True)
+            # self.encode_LR.requires_grad_(requires_grad=False)
+
 
 
         if opt.anatomy_encoder == 'DRITPP_reduceplus':
@@ -2572,8 +2579,10 @@ class DRIT(pl.LightningModule):
             self.discriminator_LR=Discriminateur_reduceplus(norm=opt.norm_discrim)
             self.discriminator_HR=Discriminateur_reduceplus(norm=opt.norm_discrim)
         elif opt.discriminator == 'PatchGAN':
+            # # # init nlyaer = 3
             self.discriminator_HR = NLayerDiscriminator(input_nc=1, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d)
             self.discriminator_LR = NLayerDiscriminator(input_nc=1, ndf=64, n_layers=3, norm_layer=nn.InstanceNorm2d)
+        
 
         if self.random_size!=0:
             print("Utilise les doubles discriminateurs")
@@ -2599,30 +2608,15 @@ class DRIT(pl.LightningModule):
 
 
         if isTrain:
-            self.lambda_cyclic_anatomy = opt.lambda_cyclic_anatomy
-            self.lambda_cyclic_modality = opt.lambda_cyclic_modality
-            self.lambda_contrastive_modality = opt.lambda_contrastive_modality
-            self.lambda_D_content = opt.lambda_D_content
-            self.lambda_D_domain = opt.lambda_D_domain
-            self.lambda_latent = opt.lambda_latent
-            self.lambda_self = opt.lambda_self
-            self.lambda_cross_cycle = opt.lambda_cross_cycle
-            self.lambda_Npair = opt.lambda_Npair
-            self.lambda_reg = opt.lambda_reg
-            self.lambda_adv_anatomy_encoder = opt.lambda_adv_anatomy_encoder
-            self.lambda_adv_generator = opt.lambda_adv_generator
-
             self.activation = {}
             self.anatomy_encoder = opt.anatomy_encoder
             self.modality_encoder = opt.modality_encoder
-
-            self.lambda_style_loss = opt.lambda_style_loss
-            self.lambda_content_loss = opt.lambda_content_loss
-
+            
             self.custom_loss = Loss_DRIT_custom_last_version(opt, gpu=self.gpu)        
 
 
     def getActivation(self,name):
+        # the hook signature
         def hook(model, input, output):
             self.activation[name] = output.detach()
         return hook
@@ -2712,7 +2706,7 @@ class DRIT(pl.LightningModule):
 
     def prepare_batch(self, batch):
         if self.use_segmentation_network:
-            return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA], batch['bones_segmentation'][tio.DATA]
+            return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA], batch['segmentations'][tio.DATA]
         else:
             return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA]
 
@@ -2720,7 +2714,7 @@ class DRIT(pl.LightningModule):
     def infer_batch(self, batch):
         if self.use_segmentation_network:
             x, y, mask, segmentation = self.prepare_batch(batch)
-            segmentation= torch.permute(F.one_hot(segmentation.long().squeeze(1).squeeze(-1), 2), (0,3,1,2))
+            segmentation= torch.permute(F.one_hot(segmentation.long().squeeze(1).squeeze(-1), 4), (0,3,1,2)) # marche très bien -> si impression que ça marche pas, c'est matplotlib qui adapte sa dynamique -> rajouter les colorbar
         else:
             x,y, mask = self.prepare_batch(batch)
             segmentation = None
@@ -2786,6 +2780,8 @@ class DRIT(pl.LightningModule):
 
 
 
+
+
     def training_step(self, batch, batch_idx):
         LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, segmentation, segmentation_predict = self.infer_batch(batch)
         batch_size=LR.shape[0]
@@ -2814,7 +2810,7 @@ class DRIT(pl.LightningModule):
             plt.close()
         
         self.custom_loss(self.manual_backward, self.log, self.optimizers(), LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, self.discriminator_content, self.discriminator_LR, self.discriminator_HR, self.anatomy_encoder, self.modality_encoder, self.encode_content, self.encode_LR, self.encode_HR, self.generator_LR, self.generator_HR, self.discriminator_LR2, self.discriminator_HR2, segmentation, segmentation_predict, self.segmentation_net)
-    
+
     def get_z_random(self, size, random_type='gauss'):
         z = torch.randn(size).cuda(self.gpu)
         return z
@@ -2842,7 +2838,7 @@ class DRIT(pl.LightningModule):
             plt.imshow(test[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
             plt.subplot(2,4,4)
             plt.title('GT segmentation')
-            plt.imshow(segmentation[0,1,:,:].cpu().detach().numpy().astype(float), cmap='gray')
+            plt.imshow(torch.argmax(segmentation[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap='gray')
             plt.subplot(2,4,5)
             plt.title('Static')
             plt.imshow(y[0,0,:,:].cpu().detach().numpy(), cmap="gray")
@@ -2853,8 +2849,9 @@ class DRIT(pl.LightningModule):
             plt.title('Synthetic dynamic')
             plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
             plt.subplot(2,4,8)
+            segmentation_predict = nn.Softmax()(segmentation_predict)
             plt.title('Predicted segmentation')
-            plt.imshow(segmentation_predict[0,1,:,:].cpu().detach().numpy().astype(float), cmap='gray')
+            plt.imshow(torch.argmax(segmentation_predict[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap='gray')
             plt.savefig(os.path.join(self.saving_path,'validation_epoch-'+str(self.current_epoch)+'.png'))
             plt.close()
         else:
