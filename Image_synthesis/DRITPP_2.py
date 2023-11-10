@@ -1922,8 +1922,6 @@ class Loss_DRIT_custom(nn.Module):
             log('Discriminateur 2 HR/T2', loc['loss'])
             return(loc['loss'])
         
-
-
 class Loss_DRIT_custom_last_version(nn.Module):
     '''
     Loss customisée. Au lieu de calculer à chaque training step l'ensemble des loss et de pondérer parun lambda potentiellement nul
@@ -1942,6 +1940,11 @@ class Loss_DRIT_custom_last_version(nn.Module):
         self.use_segmentation_network = opt.use_segmentation_network
         self.gpu = gpu
         Number_of_networks = 11
+
+        # if opt.random_size != 0:
+        #     assert str(OPTIMIZERS) == "[optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2]"
+        # else:
+        #     assert str(OPTIMIZERS) == "[optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR]"
 
         self.LOSSES = [None for i in range(Number_of_networks)] # contient toutes les loss
         self.LOSS_RETURNS = [None for i in range(Number_of_networks)] # contient les param de retour des loss
@@ -2057,6 +2060,21 @@ class Loss_DRIT_custom_last_version(nn.Module):
 
         if (opt.lambda_style_loss != 0 or opt.lambda_content_loss != 0):
             sys.exit('This loss is not implemented yet')
+            # self.lambda_style_loss = opt.lambda_style_loss
+            # self.lambda_content_loss = opt.lambda_content_loss
+            # self.LOSSES[8] = CSloss_arbitrary_style_transfer(lambda_content=opt.lambda_content_loss, lambda_style=opt.lambda_style_loss)
+            # self.LOSS_INPUTS[8] = ['lambda_content=self.lambda_content_loss, lambda_style=self.lambda_style_loss)(style=LR, content=HR, stylized=fake_LR', 'lambda_content=self.lambda_content_loss, lambda_style=self.lambda_style_loss)(style=HR, content=LR, stylized=fake_HR', 'lambda_content=self.lambda_content_loss, lambda_style=self.lambda_style_loss)(style=fake_LR, content=fake_HR, stylized=est_LR', 'lambda_content=self.lambda_content_loss, lambda_style=self.lambda_style_loss)(style=fake_HR, content=fake_LR, stylized=est_HR']
+            # self.LOSS_RETURNS[8] = "style_loss_domain_, content_loss_domain_"
+            # self.LOSSES_PER_NETWORKS[0].append(8)
+            # self.LOSSES_PER_NETWORKS[1].append(8)
+            # self.LOSSES_PER_NETWORKS[2].append(8)
+            # self.LOSSES_PER_NETWORKS[3].append(8)
+            # self.LOSSES_PER_NETWORKS[4].append(8)
+            # self.RETURNS_PER_NETWORK[0] += 'tyle_loss_LRdomain_, content_loss_LRdomain_+'
+            # self.RETURNS_PER_NETWORK[1] += ''
+            # self.RETURNS_PER_NETWORK[2] += ''
+            # self.RETURNS_PER_NETWORK[3] += ''
+            # self.RETURNS_PER_NETWORK[4] += ''
 
         if (opt.random_size !=0 and opt.lambda_D_domain != 0):
             self.random_size = opt.random_size
@@ -2082,7 +2100,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
         self.RETURNS_PER_NETWORK = [e[:-1] for e in self.RETURNS_PER_NETWORK] # pour virer le + à la fin
 
     def segmentation_loss(self, prediction, ground_truth):
-        return torch.nn.BCEWithLogitsLoss()(prediction, ground_truth.half())
+        return torch.nn.BCEWithLogitsLoss()(prediction, ground_truth.half()) * self.lambda_segmentation_loss
 
     def cyclic_anatomy(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
         return torch.nn.L1Loss()(content_HR, content_fake_LR)*self.lambda_cyclic_anatomy, torch.nn.L1Loss()(content_LR, content_fake_HR)*self.lambda_cyclic_anatomy
@@ -2110,6 +2128,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
     def contrastive_loss(self, z_LR, z_HR, z_fake_LR, z_fake_HR):
         L = SupervisedContrastiveLoss()
         batch_size = z_HR.shape[0]
+        # labels = torch.cat([torch.full((batch_size,), 0, dtype=torch.float), torch.full((batch_size,), 1, dtype=torch.float)], dim=0).to(torch.device("cuda:"+str(self.gpu)))
         labels = torch.cat([torch.full((batch_size,), 0, dtype=torch.float), torch.full((batch_size,), 1, dtype=torch.float)], dim=0).to(self.Device)
         
         z_LR = z_LR.reshape(batch_size, -1)
@@ -2298,6 +2317,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
             optimizer_segmentation_net.step()
             segmentation_net.requires_grad_(False)
 
+
         elif self.random_size != 0 and (not self.use_segmentation_network):
             optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_discriminator_LR2, optimizer_discriminator_HR2 = optimizer
             discriminator_LR2.requires_grad_(False)
@@ -2329,6 +2349,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
             optimizer_discriminator_HR2.step()
             discriminator_HR2.requires_grad_(False)
 
+
         elif self.random_size == 0 and self.use_segmentation_network:
             optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR, optimizer_segmentation_net = optimizer
             optimizer_idx = 10
@@ -2339,13 +2360,16 @@ class Loss_DRIT_custom_last_version(nn.Module):
             exec('loss = '+str(self.RETURNS_PER_NETWORK[optimizer_idx]), globals(), loc)
             log('Segmentation network', loc['loss'])
             optimizer_segmentation_net.zero_grad()
+            # print(loc['loss'])
             manual_backward(loc['loss'], retain_graph=True)
             optimizer_segmentation_net.step()
             segmentation_net.requires_grad_(False)
 
+
         elif self.random_size == 0 and (not self.use_segmentation_network):
             optimizer_encode_content, optimizer_encode_HR, optimizer_encode_LR, optimizer_generator_HR, optimizer_generator_LR, optimizer_discriminator_content, optimizer_discriminator_LR, optimizer_discriminator_HR = optimizer
-            
+
+
         else:
             sys.exit('Error: please check the last version of the custom loss')
 
@@ -2455,7 +2479,6 @@ class Loss_DRIT_custom_last_version(nn.Module):
         optimizer_discriminator_HR.step()
         discriminator_HR.requires_grad_(False)
 
-
         encode_content.requires_grad_(True)
         encode_LR.requires_grad_(True)
         encode_HR.requires_grad_(True)
@@ -2470,6 +2493,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
         if self.use_segmentation_network:
             segmentation_net.requires_grad_(True)
         
+
 
 
 
