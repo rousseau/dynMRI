@@ -39,7 +39,7 @@ if __name__ == '__main__':
     if args.seed:
         print('Set seed: '+str(args.seed_value))
         seed_everything(args.seed_value)
-
+        
     training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
     num_epochs = args.epochs
     gpu = args.gpu
@@ -53,7 +53,7 @@ if __name__ == '__main__':
     samples_per_volume = args.samples
     max_queue_length = args.queue
     
-    data = args.data
+    data = args.data 
     
 
     prefix = network+'_'
@@ -75,7 +75,7 @@ if __name__ == '__main__':
     # DATASET
     if data != 'MNIST':
         if args.dynamic_path!=None and args.static_path!=None:
-            subjects, check_subjects = load_data(data='custom', segmentation=args.segmentation, batch_size=training_batch_size, dynamic_path = args.dynamic_path, static_path = args.static_path)
+            subjects, check_subjects = load_data(data='custom', segmentation=args.segmentation, batch_size=training_batch_size, dynamic_path = args.dynamic_path, static_path = args.static_path, seg_path=args.seg_path)
         else:
             subjects, check_subjects = load_data(data=data, segmentation=args.segmentation, batch_size=training_batch_size)
 
@@ -90,15 +90,10 @@ if __name__ == '__main__':
         noise = tio.RandomNoise(std=0.1, p=0.25)
         if data == 'equinus_simulate':
             prefix += '_bs_flp_afn_nse_VERSION_'
-        else:
-            pass
 
         if (data=='dhcp_2mm' or data=='dhcp_1mm' or data=='dhcp_original'):
             normalization = tio.ZNormalization(masking_method='label')
-            #normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
             spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
-
-        #if data=='equinus_sourcedata' or data=='equinus_simulate':
         else:
             normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
             spatial = tio.RandomAffine(scales=0.1,degrees=(20,0,0), translation=0, p=0.75)
@@ -108,15 +103,14 @@ if __name__ == '__main__':
 
         transforms = [flip, spatial, bias, normalization, noise]
 
-
-        training_transform = tio.Compose(transforms) 
+        training_transform = tio.Compose(transforms)
         validation_transform = tio.Compose([normalization])   
 
 
 
         #############################################################################################################################################################################""
         # TRAIN AND VALIDATION SETS
-        if (data=="equinus_256" or data=="bone_segmentation_equinus_256" or data=="segmentation_equinus_256" or data=='equinus_256_boneseg'):
+        if (data=="equinus_256" or data=="bone_segmentation_equinus_256" or data=="segmentation_equinus_256" or data=='equinus_256_boneseg' or data=='custom'):
             training_sub=['sub_E05', 'sub_T03', 'sub_T02', 'sub_T05', 'sub_T01', 'sub_T04', 'sub_E02', 'sub_E01', 'sub_T08', 'sub_E08', 'sub_E06']
             validation_sub=['sub_T06']
             test_sub=['sub_E03']
@@ -295,26 +289,20 @@ if __name__ == '__main__':
         trainer = pl.Trainer(
             accelerator=device, ##
             max_epochs=num_epochs,
-            #progress_bar_refresh_rate=20,##
             logger=logger,
             callbacks= checkpoint_callback, ##
             precision=16,
             deterministic='warn', 
             devices = [0], 
-            # strategy ="ddp"
-            # strategy='ddp_find_unused_parameters_true'
         )
     else:
         trainer = pl.Trainer(
             accelerator=device, ##
             max_epochs=num_epochs,
-            #progress_bar_refresh_rate=20, ##
             logger=logger,
             callbacks= checkpoint_callback, ##
             precision=16, 
             devices = [0], 
-            # strategy ="ddp"
-            # strategy='ddp_find_unused_parameters_true'
         )
 
     trainer.fit(net, training_loader_patches, validation_loader_patches)
