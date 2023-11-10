@@ -2508,7 +2508,7 @@ class DRIT(pl.LightningModule):
         if opt.use_segmentation_network:
             if opt.data == 'segmentation_equinus_256':
                 self.segmentation_net = UNet(n_classes=2)
-            elif opt.data == 'bone_segmentation_equinus_256':
+            elif opt.data == 'bone_segmentation_equinus_256' or opt.data == 'custom':
                 self.segmentation_net = UNet(n_classes=4)
         else:
             self.segmentation_net = None
@@ -2669,7 +2669,6 @@ class DRIT(pl.LightningModule):
         content_fake_LR,content_fake_HR=self.encode_content.forward(fake_LR,fake_HR)
         return(fake_HR, fake_LR, content_HR, content_LR, z_HR, z_LR, z_fake_HR, z_fake_LR, content_fake_HR, content_fake_LR)
 
-
     def configure_optimizers(self):
         if self.anatomy_encoder!='ResNet50':
             optimizer_encode_content=self.optimizer_class(self.encode_content.parameters(), lr=self.lr, betas=(0.5, 0.999), weight_decay=0.0001)
@@ -2707,6 +2706,7 @@ class DRIT(pl.LightningModule):
     def prepare_batch(self, batch):
         if self.use_segmentation_network:
             return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA], batch['segmentations'][tio.DATA]
+            #return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA], batch['calcaneus_segmentation'][tio.DATA], batch['talus_segmentation'][tio.DATA], batch['tibia_segmentation'][tio.DATA]
         else:
             return batch['LR_image'][tio.DATA], batch['HR_image'][tio.DATA], batch['label'][tio.DATA]
 
@@ -2722,14 +2722,37 @@ class DRIT(pl.LightningModule):
         x=x.squeeze(-1) 
         y=y.squeeze(-1)
 
+        # print(x.shape)
+        # print(y.shape)
+        # print(segmentation.shape)
+        # sys.exit()
+        # idx = 10
+        # plt.figure()
+        # plt.subplot(1,3,1)
+        # plt.imshow(segmentation[idx,0,:,:].cpu().detach().numpy().astype(float), cmap='gray')
+        # plt.colorbar()
+        # plt.subplot(1,3,2)
+        # plt.imshow(segmentation[idx,1,:,:].cpu().detach().numpy().astype(float), cmap='gray')
+        # plt.colorbar()
+        # plt.subplot(1,3,3)
+        # plt.imshow(y[idx,0,:,:].cpu().detach().numpy().astype(float), cmap='gray')
+        # plt.savefig(os.path.join(self.saving_path, 'test_seg.png'))
+        # plt.close()
+        # sys.exit()
+
         x_random = x[:self.random_size]
         y_random = y[:self.random_size]
         x = x[self.random_size:]
         y = y[self.random_size:]
+        #segmentation = segmentation[self.random_size:]
 
         #disentanglement
         if self.modality_encoder == 'ResNet50' and self.anatomy_encoder=='ResNet50':
             h = self.encode_HR.layer1.register_forward_hook(self.getActivation('activation'))
+            print(x.shape)
+            #test = x.expand(x.shape[0], 3, x.shape[2], x.shape[3])
+            # print(torch.equal(test[:,0,:,:], test[:,1,:,:]) and torch.equal(test[:,0,:,:], test[:,2,:,:]))
+            # sys.exit()
             out=self.encode_HR(x.expand(x.shape[0], 3, x.shape[2], x.shape[3]))
             z_LR = self.activation['activation']
             out=self.encode_HR(y.expand(x.shape[0], 3, x.shape[2], x.shape[3]))
@@ -2787,27 +2810,82 @@ class DRIT(pl.LightningModule):
         batch_size=LR.shape[0]
         self.true_label = torch.full((batch_size,), 1, dtype=torch.float)
         self.fake_label = torch.full((batch_size,), 0, dtype=torch.float)
+        # self.true_label=self.true_label.to(torch.device("cuda:"+str(self.gpu)))
+        # self.fake_label=self.fake_label.to(torch.device("cuda:"+str(self.gpu)))
         self.true_label=self.true_label.to(self.Device)
         self.fake_label=self.fake_label.to(self.Device)
+        font = {'fontsize':8}
 
         if self.saving_ratio!=None and batch_idx%self.saving_ratio==0:
-            plt.figure()
-            plt.suptitle('epoch: '+str(self.current_epoch)+' batch_idx: '+str(batch_idx)+'     '+self.prefix)
-            plt.subplot(2,3,1)
-            plt.imshow(LR[0,0,:,:].cpu().detach().numpy(), cmap="gray")
-            plt.subplot(2,3,2)
-            plt.imshow(est_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
-            plt.subplot(2,3,3)
-            test=fake_HR
-            plt.imshow(test[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
-            plt.subplot(2,3,4)
-            plt.imshow(HR[0,0,:,:].cpu().detach().numpy(), cmap="gray")
-            plt.subplot(2,3,5)
-            plt.imshow(est_HR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
-            plt.subplot(2,3,6)
-            plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
-            plt.savefig(os.path.join(self.saving_path, 'epoch-'+str(self.current_epoch)+'_batch_idx-'+str(batch_idx)+'.png'))
-            plt.close()
+            if self.use_segmentation_network:
+                plt.figure()
+                plt.suptitle('epoch: '+str(self.current_epoch)+' batch_idx: '+str(batch_idx)+'     '+self.prefix, fontsize=10)
+                plt.subplot(2,4,1)
+                plt.title('Dynamic', fontdict=font)
+                plt.imshow(LR[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,4,2)
+                plt.title('Reconstruct dynamic', fontdict=font)
+                plt.imshow(est_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,4,3)
+                plt.title('Synthetic static', fontdict=font)
+                test=fake_HR
+                plt.imshow(test[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,4,4)
+                plt.title('GT segmentation', fontdict=font)
+                plt.imshow(torch.argmax(segmentation[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,4,5)
+                plt.title('Static', fontdict=font)
+                plt.imshow(HR[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,4,6)
+                plt.title('Reconstruct static', fontdict=font)
+                plt.imshow(est_HR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,4,7)
+                plt.title('Synthetic dynamic', fontdict=font)
+                plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,4,8)
+                segmentation_predict = nn.Softmax()(segmentation_predict)
+                plt.title('Predicted segmentation', fontdict=font)
+                plt.imshow(torch.argmax(segmentation_predict[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap='gray')
+                plt.axis('off')
+                plt.savefig(os.path.join(self.saving_path, 'epoch-'+str(self.current_epoch)+'_batch_idx-'+str(batch_idx)+'.png'))
+                plt.close()
+            else:
+                plt.figure()
+                plt.suptitle('epoch: '+str(self.current_epoch)+' batch_idx: '+str(batch_idx)+'     '+self.prefix, fontsize=10)
+                plt.subplot(2,3,1)
+                plt.title('Dynamic', fontdict=font)
+                plt.imshow(LR[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,3,2)
+                plt.title('Reconstruct dynamic', fontdict=font)
+                plt.imshow(est_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,3,3)
+                plt.title('Synthetic static', fontdict=font)
+                test=fake_HR
+                plt.imshow(test[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,3,4)
+                plt.title('Static', fontdict=font)
+                plt.imshow(HR[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,3,5)
+                plt.title('Reconstruct static', fontdict=font)
+                plt.imshow(est_HR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+                plt.axis('off')
+                plt.subplot(2,3,6)
+                plt.title('Synthetic dynamic', fontdict=font)
+                plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+                plt.axis('off')
+                plt.savefig(os.path.join(self.saving_path, 'epoch-'+str(self.current_epoch)+'_batch_idx-'+str(batch_idx)+'.png'))
+                plt.close()
         
         self.custom_loss(self.manual_backward, self.log, self.optimizers(), LR, HR, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, self.discriminator_content, self.discriminator_LR, self.discriminator_HR, self.anatomy_encoder, self.modality_encoder, self.encode_content, self.encode_LR, self.encode_HR, self.generator_LR, self.generator_HR, self.discriminator_LR2, self.discriminator_HR2, segmentation, segmentation_predict, self.segmentation_net)
 
@@ -2820,64 +2898,79 @@ class DRIT(pl.LightningModule):
         self.random_size = 0
         x, y, fake_LR, fake_HR, fake_LRLR, fake_HRHR, est_LR, est_HR, z_LR, z_HR, content_LR, content_HR, z_fake_LR, z_fake_HR, content_fake_LR, content_fake_HR, z_random, fake_LR_random, fake_HR_random, z_random_LR, z_random_HR, LR_random, HR_random, segmentation, segmentation_predict = self.infer_batch(batch)        
         self.random_size = random_size
-        
+        font = {'fontsize':8}
         
         if self.use_segmentation_network:
             loss = self.criterion(est_HR, y) + monai.losses.DiceCELoss(include_background=False, softmax=True)(segmentation_predict, segmentation)
             plt.figure()
-            plt.suptitle(self.prefix)
+            plt.suptitle(self.prefix, fontsize=10)
             plt.subplot(2,4,1)
-            plt.title('Dynamic')
+            plt.title('Dynamic', fontdict=font)
             plt.imshow(x[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,4,2)
-            plt.title('Reconstruct dynamic')
+            plt.title('Reconstruct dynamic', fontdict=font)
             plt.imshow(est_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,4,3)
-            plt.title('Synthetic static')
+            plt.title('Synthetic static', fontdict=font)
             test=fake_HR
             plt.imshow(test[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,4,4)
-            plt.title('GT segmentation')
+            plt.title('GT segmentation', fontdict=font)
             plt.imshow(torch.argmax(segmentation[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap='gray')
+            plt.axis('off')
             plt.subplot(2,4,5)
-            plt.title('Static')
+            plt.title('Static', fontdict=font)
             plt.imshow(y[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,4,6)
-            plt.title('Reconstruct static')
+            plt.title('Reconstruct static', fontdict=font)
             plt.imshow(est_HR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,4,7)
-            plt.title('Synthetic dynamic')
+            plt.title('Synthetic dynamic', fontdict=font)
             plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,4,8)
             segmentation_predict = nn.Softmax()(segmentation_predict)
-            plt.title('Predicted segmentation')
+            plt.title('Predicted segmentation', fontdict=font)
             plt.imshow(torch.argmax(segmentation_predict[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap='gray')
+            plt.axis('off')
             plt.savefig(os.path.join(self.saving_path,'validation_epoch-'+str(self.current_epoch)+'.png'))
             plt.close()
         else:
             loss = self.criterion(est_HR, y)
             plt.figure()
-            plt.suptitle(self.prefix)
+            plt.suptitle(self.prefix, fontsize=10)
             plt.subplot(2,3,1)
-            plt.title('Dynamic')
+            plt.title('Dynamic', fontdict=font)
             plt.imshow(x[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,3,2)
-            plt.title('Reconstruct dynamic')
+            plt.title('Reconstruct dynamic', fontdict=font)
             plt.imshow(est_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,3,3)
-            plt.title('Synthetic static')
+            plt.title('Synthetic static', fontdict=font)
             test=fake_HR
             plt.imshow(test[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,3,4)
-            plt.title('Static')
+            plt.title('Static', fontdict=font)
             plt.imshow(y[0,0,:,:].cpu().detach().numpy(), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,3,5)
-            plt.title('Reconstruct static')
+            plt.title('Reconstruct static', fontdict=font)
             plt.imshow(est_HR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.axis('off')
             plt.subplot(2,3,6)
-            plt.title('Synthetic dynamic')
+            plt.title('Synthetic dynamic', fontdict=font)
             plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
+            plt.axis('off')
             plt.savefig(os.path.join(self.saving_path,'validation_epoch-'+str(self.current_epoch)+'.png'))
             plt.close()
         self.log('val_loss', loss)
         return loss
+
