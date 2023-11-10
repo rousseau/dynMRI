@@ -28,11 +28,13 @@ class BaseOptions():
         parser.add_argument('--use_segmentation_network', help='Return the segmentation extract fro mthe content', action='store_true')
         parser.add_argument('--discriminator', help='Define the discriminator architecture', type=str, required=False, default='PatchGAN', choices={'PatchGAN', 'DRIT'})
         parser.add_argument('--norm_discrim', help='Normalization to apply in the DRIT discriminator', type=str, required=False, default='None', choices=['None', 'Instance'])
+        #parser.add_argument('--activation_layer', help='Layer for getting activations for')
 
         # dataset parameters
         parser.add_argument('-d', '--data', help='Input dataset', type=str, required=False, default = 'equinus_256')
         parser.add_argument('--dynamic_path', help='Path to the dynamic images folder (Equinus)', type=str, required=False, default = None)
         parser.add_argument('--static_path', help='Path to the dynamic images folder (Equinus)', type=str, required=False, default = None)
+        parser.add_argument('--seg_path', help='Path to the segmentations folder (Equinus)', type=str, required=False, default = None)
         parser.add_argument('-p', '--patch_size', help='Patch size', nargs='+', type=int, required=False, default = (64,64,1))
 
 
@@ -48,16 +50,24 @@ class BaseOptions():
             file_name=os.path.join(recording_path, 'testing' + "_opt.txt")
         setattr(opt, 'saving_path', recording_path+'/')
 
+        if (opt.static_path!=None and opt.dynamic_path!=None):
+            setattr(opt, 'data', 'custom')
+
         if opt.use_segmentation_network:
-            setattr(opt, 'data', 'bone_segmentation_equinus_256')
-            if opt.lambda_segmentation_loss ==0:
-                warnings.warn("Warning: the use of segmentation network is set to True but the loss ponderation is defined to 0. Set to 1 by default.")
-                setattr(opt, 'lambda_segmentation_loss', 1)
+            #setattr(opt, 'data', 'segmentation_equinus_256')
+            if opt.data == 'custom':
+                assert opt.seg_path is not None, "Please define the path to the segmentations while using segmentation network. Use --seg_path argument"
+            else:
+                setattr(opt, 'data', 'bone_segmentation_equinus_256')
+                if opt.lambda_segmentation_loss ==0:
+                    warnings.warn("Warning: the use of segmentation network is set to True but the loss ponderation is defined to 0. Set to 1 by default.")
+                    setattr(opt, 'lambda_segmentation_loss', 1)
 
 
         to_save = ''
         text = ''
         text += '----------------- Options ---------------\n'
+        # for k, v in sorted(vars(opt).items()):
         for k, v in sorted(vars(opt).items()):
             comment = ''
             default = self.parser.get_default(k)
@@ -88,6 +98,7 @@ class BaseOptions():
 
     def parse(self):
         opt = self.gather_options()
+        #opt.isTrain = self.isTrain
 
         self.print_and_save(opt)
 
