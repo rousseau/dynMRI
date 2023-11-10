@@ -9,7 +9,7 @@ import torchvision.transforms as transforms
 import random
 
 
-def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, mean=False, dynamic_path = None, static_path = None):
+def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, mean=False, dynamic_path = None, static_path = None, seg_path=None):
     subjects=[]
 
     if data == 'hcp':
@@ -611,6 +611,24 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
                 subject['static_2']=rotation(subject['static_2'])
                 subjects.append(subject)
 
+        #         print(s)
+        #         # print('\t '+str(subject['static_1'][tio.DATA].shape))
+        #         # print('\t compteur = '+str(compteur))
+        #         # print('\t ligne = '+str(compteur//3))
+        #         # print('\t colonne original = '+str(2*(compteur%3)))
+        #         # print('\t colonne rotated = '+str(2*(compteur%3)+1))
+        #         axis[compteur//3, 2*(compteur%3)].imshow(subject['static_1'][tio.DATA][0,:,:,80], cmap="gray")
+        #         axis[compteur//3, 2*(compteur%3)+1].imshow(subject['static_2'][tio.DATA][0,:,:,80], cmap="gray")
+        #         axis[compteur//3, 2*(compteur%3)].set_title('original static - '+s, size = 4)
+        #         axis[compteur//3, 2*(compteur%3)+1].set_title('rotated - '+s, size = 4)
+        #         axis[compteur//3, 2*(compteur%3)].axis('off')
+        #         axis[compteur//3, 2*(compteur%3)+1].axis('off')
+        #         compteur = compteur +1
+
+        # figure.tight_layout()
+        # figure.savefig('/home/claire/Nets_Reconstruction/Test_rotation.png', dpi = 400)
+        # plt.close()
+        # sys.exit()
         
     elif data == 'monomodal_dynamic_256':
         check_subjects=[]
@@ -732,6 +750,18 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
                                 file=HR.split('/')[-1].replace('_registration','_footmask_registration').replace('.nii.gz','_bin.nii.gz')
                                 label=os.path.join(HR_path,s,seq,file)
                                 SEG = os.path.join(bones_seg_path, s, seq, HR.split('/')[-1].replace('.nii.gz','_3-labels-bones.nii.gz'))
+
+                                # CALCA_SEG = os.path.join(bones_seg_path, s, seq, HR.split('/')[-1].replace('.nii.gz','_seg-calcaneus.nii.gz'))
+                                # TALUS_SEG = os.path.join(bones_seg_path, s, seq, HR.split('/')[-1].replace('.nii.gz','_seg-talus.nii.gz'))
+                                # TIBIA_SEG = os.path.join(bones_seg_path, s, seq, HR.split('/')[-1].replace('.nii.gz','_seg-tibia.nii.gz'))
+                                
+                                # print('label: ',SEG.split('/')[-3:])
+                                # print('LR: ',LR.split('/')[-3:])
+                                # print('HR: ',HR.split('/')[-3:])
+                                # sys.exit()
+                                # print('seg calca: ',CALCA_SEG.split('/')[-3:])
+                                # print('seg tibia: ',TIBIA_SEG.split('/')[-3:])
+                                # print('seg talus: ',TALUS_SEG.split('/')[-3:])
       
                                 if s not in check_subjects:
                                     check_subjects.append(s)
@@ -742,6 +772,10 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
                                     label=tio.LabelMap(label), 
                                     segmentations = tio.LabelMap(SEG)
                                 )
+                                #     calcaneus_segmentation=tio.LabelMap(CALCA_SEG),
+                                #     talus_segmentation=tio.LabelMap(TALUS_SEG),
+                                #     tibia_segmentation=tio.LabelMap(TIBIA_SEG)
+                                # )
                                 subjects.append(subject)
                         else:
                             sys.exit("Error in data loading: more than one HR file are corresponding to LR file. HR files: "+str(HR_files))
@@ -983,10 +1017,12 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
                             )
                             subjects.append(subject)
 
+
     elif data == 'custom':
         check_subjects=[]
         HR_path=os.path.join(static_path)
         LR_path=os.path.join(dynamic_path)
+        SEG_path=os.path.join(seg_path)
         subject_names = os.listdir(LR_path)
         forbidden_subjets=['sub_E09','sub_T10','sub_T11','sub_E11'] #'sub_T09','sub_T07'
         for s in subject_names:
@@ -995,52 +1031,36 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
                 for seq in sequences:
                     volumes=os.listdir(os.path.join(LR_path,s,seq))
                     for v in volumes:
-                        #HR=glob.glob(os.path.join(HR_path,s+'*.nii.gz'))
                         LR=os.path.join(LR_path,s,seq,v)
                         HR_files=glob.glob(os.path.join(HR_path,s,seq,v.split('.')[0]+'*.nii.gz'))
-                        HR_files=[i for i in HR_files if i.find('footmask')==-1]
-                        HR_files=[i for i in HR_files if i.find('segment')==-1]
+                        HR_files=[i for i in HR_files if (i.find('footmask')==-1 and i.find('segment')==-1 and i.find('4D')==-1)]
                         if len(HR_files)>0:
-                            HR=HR_files[0]
-                            file=HR.split('/')[-1].replace('_registration','_footmask_registration')
-                            SEG=os.path.join(HR_path,s,seq,file)
-                            if s not in check_subjects:
-                                check_subjects.append(s)
-                            if segmentation is not None:
-                                subject=tio.Subject(
-                                    subject_name=s,
-                                    LR_image=tio.ScalarImage(LR),
-                                    HR_image=tio.ScalarImage(HR),
-                                    label=tio.LabelMap(SEG)
-                                )
-                                talus_seg=glob.glob(os.path.join(bones_seg_path, s, seq, v.split('.')[0]+'*segment*talus.nii.gz'))
-                                if len(talus_seg)!=0:
-                                    ssubject=subject
-                                    talus_seg=tio.LabelMap(talus_seg[0])
-                                    ssubject.add_image(talus_seg, 'segmentation_os')
-                                    subjects.append(ssubject)
-                                tibia_seg=glob.glob(os.path.join(bones_seg_path, s, seq, v.split('.')[0]+'*segment*tibia.nii.gz'))
-                                if len(tibia_seg)!=0:
-                                    ssubject=subject
-                                    tibia_seg=tio.LabelMap(tibia_seg[0])
-                                    ssubject.add_image(tibia_seg, 'segmentation_os')
-                                    subjects.append(ssubject)
-                                calcaneus_seg=glob.glob(os.path.join(bones_seg_path, s, seq, v.split('.')[0]+'*segment*calcaneus.nii.gz'))
-                                if len(calcaneus_seg)!=0:
-                                    ssubject=subject
-                                    calcaneus_seg=tio.LabelMap(calcaneus_seg[0])
-                                    ssubject.add_image(calcaneus_seg, 'segmentation_os')
-                                    subjects.append(ssubject)
-                            else:
-                                subject=tio.Subject(
-                                    subject_name=s,
-                                    LR_image=tio.ScalarImage(LR),
-                                    HR_image=tio.ScalarImage(HR),
-                                    label=tio.LabelMap(SEG)
-                                )
-                                subjects.append(subject)
-
-
+                            for i in range(len(HR_files)):
+                                HR=HR_files[i]
+                                file=HR.split('/')[-1].replace('_registration','_footmask_registration').replace('.nii.gz','_bin.nii.gz')
+                                label=os.path.join(HR_path,s,seq,file)
+                                if seg_path is not None:
+                                    SEG = os.path.join(SEG_path, s, seq, HR.split('/')[-1].replace('.nii.gz','_3-labels-bones.nii.gz'))
+                                    if s not in check_subjects:
+                                        check_subjects.append(s)
+                                    subject=tio.Subject(
+                                        subject_name=s,
+                                        LR_image=tio.ScalarImage(LR),
+                                        HR_image=tio.ScalarImage(HR),
+                                        label=tio.LabelMap(label), 
+                                        segmentations = tio.LabelMap(SEG)
+                                    )
+                                    subjects.append(subject)
+                                else:
+                                    if s not in check_subjects:
+                                        check_subjects.append(s)
+                                    subject=tio.Subject(
+                                        subject_name=s,
+                                        LR_image=tio.ScalarImage(LR),
+                                        HR_image=tio.ScalarImage(HR),
+                                        label=tio.LabelMap(label), 
+                                    )
+                                    subjects.append(subject)
 
 
 
