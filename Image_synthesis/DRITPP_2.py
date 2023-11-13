@@ -2100,7 +2100,8 @@ class Loss_DRIT_custom_last_version(nn.Module):
         self.RETURNS_PER_NETWORK = [e[:-1] for e in self.RETURNS_PER_NETWORK] # pour virer le + à la fin
 
     def segmentation_loss(self, prediction, ground_truth):
-        return torch.nn.CrossEntropyLoss()(prediction, ground_truth.half()) * self.lambda_segmentation_loss
+        ground_truth = ground_truth.squeeze(1)
+        return torch.nn.CrossEntropyLoss()(prediction, ground_truth) * self.lambda_segmentation_loss
 
     def cyclic_anatomy(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
         return torch.nn.L1Loss()(content_HR, content_fake_LR)*self.lambda_cyclic_anatomy, torch.nn.L1Loss()(content_LR, content_fake_HR)*self.lambda_cyclic_anatomy
