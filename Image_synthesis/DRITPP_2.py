@@ -2100,7 +2100,7 @@ class Loss_DRIT_custom_last_version(nn.Module):
         self.RETURNS_PER_NETWORK = [e[:-1] for e in self.RETURNS_PER_NETWORK] # pour virer le + à la fin
 
     def segmentation_loss(self, prediction, ground_truth):
-        return torch.nn.BCEWithLogitsLoss()(prediction, ground_truth.half()) * self.lambda_segmentation_loss
+        return torch.nn.CrossEntropyLoss()(prediction, ground_truth.half()) * self.lambda_segmentation_loss
 
     def cyclic_anatomy(self, content_LR, content_HR, content_fake_LR, content_fake_HR):
         return torch.nn.L1Loss()(content_HR, content_fake_LR)*self.lambda_cyclic_anatomy, torch.nn.L1Loss()(content_LR, content_fake_HR)*self.lambda_cyclic_anatomy
@@ -2738,7 +2738,7 @@ class DRIT(pl.LightningModule):
     def infer_batch(self, batch):
         if self.use_segmentation_network:
             x, y, mask, segmentation = self.prepare_batch(batch)
-            segmentation= torch.permute(F.one_hot(segmentation.long().squeeze(1).squeeze(-1), 4), (0,3,1,2)) # marche très bien -> si impression que ça marche pas, c'est matplotlib qui adapte sa dynamique -> rajouter les colorbar
+            segmentation= segmentation.long().squeeze(-1)
         else:
             x,y, mask = self.prepare_batch(batch)
             segmentation = None
@@ -2746,29 +2746,10 @@ class DRIT(pl.LightningModule):
         x=x.squeeze(-1) 
         y=y.squeeze(-1)
 
-        # print(x.shape)
-        # print(y.shape)
-        # print(segmentation.shape)
-        # sys.exit()
-        # idx = 10
-        # plt.figure()
-        # plt.subplot(1,3,1)
-        # plt.imshow(segmentation[idx,0,:,:].cpu().detach().numpy().astype(float), cmap='gray')
-        # plt.colorbar()
-        # plt.subplot(1,3,2)
-        # plt.imshow(segmentation[idx,1,:,:].cpu().detach().numpy().astype(float), cmap='gray')
-        # plt.colorbar()
-        # plt.subplot(1,3,3)
-        # plt.imshow(y[idx,0,:,:].cpu().detach().numpy().astype(float), cmap='gray')
-        # plt.savefig(os.path.join(self.saving_path, 'test_seg.png'))
-        # plt.close()
-        # sys.exit()
-
         x_random = x[:self.random_size]
         y_random = y[:self.random_size]
         x = x[self.random_size:]
         y = y[self.random_size:]
-        #segmentation = segmentation[self.random_size:]
 
         #disentanglement
         if self.modality_encoder == 'ResNet50' and self.anatomy_encoder=='ResNet50':
@@ -2859,7 +2840,8 @@ class DRIT(pl.LightningModule):
                 plt.axis('off')
                 plt.subplot(2,4,4)
                 plt.title('GT segmentation', fontdict=font)
-                plt.imshow(torch.argmax(segmentation[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap="gray")
+                #plt.imshow(torch.argmax(segmentation[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap="gray")
+                plt.imshow(segmentation[0,:,:,:].cpu().detach().numpy().astype(float), cmap="gray")
                 plt.axis('off')
                 plt.subplot(2,4,5)
                 plt.title('Static', fontdict=font)
@@ -2925,7 +2907,7 @@ class DRIT(pl.LightningModule):
         font = {'fontsize':8}
         
         if self.use_segmentation_network:
-            loss = self.criterion(est_HR, y) + monai.losses.DiceCELoss(include_background=False, softmax=True)(segmentation_predict, segmentation)
+            loss = self.criterion(est_HR, y)# + monai.losses.DiceCELoss(include_background=False, softmax=True)(segmentation_predict, segmentation)
             plt.figure()
             plt.suptitle(self.prefix, fontsize=10)
             plt.subplot(2,4,1)
@@ -2943,7 +2925,8 @@ class DRIT(pl.LightningModule):
             plt.axis('off')
             plt.subplot(2,4,4)
             plt.title('GT segmentation', fontdict=font)
-            plt.imshow(torch.argmax(segmentation[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap='gray')
+            #plt.imshow(torch.argmax(segmentation[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap='gray')
+            plt.imshow(segmentation[0,0,:,:].cpu().detach().numpy().astype(float), cmap='gray')
             plt.axis('off')
             plt.subplot(2,4,5)
             plt.title('Static', fontdict=font)
@@ -2958,12 +2941,13 @@ class DRIT(pl.LightningModule):
             plt.imshow(fake_LR[0,0,:,:].cpu().detach().numpy().astype(float), cmap="gray")
             plt.axis('off')
             plt.subplot(2,4,8)
-            segmentation_predict = nn.Softmax()(segmentation_predict)
+            segmentation_predict = nn.Softmax(dim=1)(segmentation_predict)
             plt.title('Predicted segmentation', fontdict=font)
             plt.imshow(torch.argmax(segmentation_predict[0,:,:,:], dim=0).cpu().detach().numpy().astype(float), cmap='gray')
             plt.axis('off')
             plt.savefig(os.path.join(self.saving_path,'validation_epoch-'+str(self.current_epoch)+'.png'))
             plt.close()
+            
         else:
             loss = self.criterion(est_HR, y)
             plt.figure()
