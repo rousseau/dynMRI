@@ -46,7 +46,7 @@ class TrainOptions(base_options.BaseOptions):
         DRIT_parser.add_argument('--lambda_adv_generator', help='', type=int, required=False, default = 1)
         DRIT_parser.add_argument('--lambda_style_loss', help='ponderation for style loss inspired from those used in arbitrary style transfer', type=int, required=False, default=0)
         DRIT_parser.add_argument('--lambda_content_loss', help='ponderation for content loss inspired from those used in arbitrary style transfer', type=int, required=False, default=0)
-        DRIT_parser.add_argument('--lambda_segmentation_loss', help='ponderation for segmentation loss as en auxialiary task', type=int, required=False, default=0)
+        DRIT_parser.add_argument('--lambda_segmentation_loss', help='ponderation for segmentation loss as en auxialiary task', type=float, required=False, default=0)
         
         Degradation_parser = subparsers.add_parser("Degradation", help="Degradation mode parser")
         Degradation_parser.add_argument('--data_mode', help='(Pseudo) Paired or Unpaired setting', type=str, required=False, default='Paired')
