@@ -23,7 +23,7 @@ class TrainOptions(base_options.BaseOptions):
         parser.add_argument('-q', '--queue', help='Max queue length', type=int, required=False, default = 300)
         parser.add_argument('--sampler', help='Sampler to use (probabilities or uniform)', type=str, required=False, default = "Probabilities")
         # Saving
-        parser.add_argument('--experiment_name', help='Insert in the file name', type=str, required=True)
+        parser.add_argument('--experiment_name', help='Insert in the file name', type=str, required=False)
         parser.add_argument('--saving_path', help='Path to the folder the experiment files', type=str, required = False, default=home)
         parser.add_argument('--saving_ratio', help='If you want to capture images during training, provide a number as an argument to indicate how often images are to be recorded based on batch_idx. Otherwise, set it to None.', type=int, required = False, default=None)
         parser.add_argument('--phase', help='Train, val, test', type=str, required = False, default="train")
