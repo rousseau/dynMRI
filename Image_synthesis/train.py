@@ -38,8 +38,8 @@ if __name__ == '__main__':
 
     if args.seed:
         print('Set seed: '+str(args.seed_value))
-        seed_everything(args.seed_value)
-        
+        seed_everything(args.seed_value, workers=True)
+
     training_split_ratio = 0.9  # use 90% of samples for training, 10% for testing
     num_epochs = args.epochs
     gpu = args.gpu
@@ -90,10 +90,13 @@ if __name__ == '__main__':
         noise = tio.RandomNoise(std=0.1, p=0.25)
         if data == 'equinus_simulate':
             prefix += '_bs_flp_afn_nse_VERSION_'
+        else:
+            pass
 
         if (data=='dhcp_2mm' or data=='dhcp_1mm' or data=='dhcp_original'):
             normalization = tio.ZNormalization(masking_method='label')
             spatial = tio.RandomAffine(scales=0.1,degrees=10, translation=0, p=0.75)
+
         else:
             normalization = tio.ZNormalization(masking_method=tio.ZNormalization.mean)
             spatial = tio.RandomAffine(scales=0.1,degrees=(20,0,0), translation=0, p=0.75)
@@ -103,7 +106,7 @@ if __name__ == '__main__':
 
         transforms = [flip, spatial, bias, normalization, noise]
 
-        training_transform = tio.Compose(transforms)
+        training_transform = tio.Compose(transforms) 
         validation_transform = tio.Compose([normalization])   
 
 
@@ -168,6 +171,7 @@ if __name__ == '__main__':
 
         #############################################################################################################################################################################""
         # PATCHES SETS
+        print('num_workers : '+str(num_workers))
         prefix += '_sampler_'+sampler
         if sampler=='Probabilities':
             probabilities = {0: 0, 1: 1}
@@ -281,33 +285,30 @@ if __name__ == '__main__':
     logger = TensorBoardLogger(save_dir = output_path, name = 'Test_logger',version=prefix)
 
     if gpu >= 0:
-        device = 'gpu' # version avec les anciennes version de pytorch ont été enregistrées le 07/09/2023 sur GitHub
+        device = 'gpu'
     else:
         device = 'cpu'
 
+    n_gpus = torch.cuda.device_count()
+
+    trainer_args = {
+        'accelerator': 'gpu',
+        'max_epochs' : num_epochs,
+        'logger' : logger
+    }
+    
+    if n_gpus > 1:
+        trainer_args['strategy']='ddp'
+
     if args.seed:
-        trainer = pl.Trainer(
-            accelerator=device, ##
-            max_epochs=num_epochs,
-            logger=logger,
-            callbacks= checkpoint_callback, ##
-            precision=16,
-            deterministic='warn', 
-            devices = [0], 
-        )
+        trainer_args['deterministic']='warn'
+        trainer = pl.Trainer(**trainer_args)
+        # compiled_net = torch.compile(net)
     else:
-        trainer = pl.Trainer(
-            accelerator=device, ##
-            max_epochs=num_epochs,
-            logger=logger,
-            callbacks= checkpoint_callback, ##
-            precision=16, 
-            devices = [0], 
-        )
+        trainer = pl.Trainer(**trainer_args)
 
     trainer.fit(net, training_loader_patches, validation_loader_patches)
     trainer.save_checkpoint(output_path+prefix+'.ckpt')
     torch.save(net.state_dict(), output_path+prefix+'_torch.pt')
 
     print('Finished Training')
-
