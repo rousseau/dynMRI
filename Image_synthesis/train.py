@@ -12,7 +12,7 @@ import pytorch_lightning as pl
 import os
 import sys
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pl.strategies import DDPStrategy
+from pytorch_lightning.strategies import DDPStrategy
 import matplotlib.pyplot as plt
 import glob
 from datetime import datetime
