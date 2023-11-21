@@ -12,6 +12,7 @@ import pytorch_lightning as pl
 import os
 import sys
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pl.strategies import DDPStrategy
 import matplotlib.pyplot as plt
 import glob
 from datetime import datetime
@@ -298,7 +299,7 @@ if __name__ == '__main__':
     }
     
     if n_gpus > 1:
-        trainer_args['strategy']='ddp'
+        trainer_args['strategy']=DDPStrategy(find_unused_parameters=True)
 
     if args.seed:
         trainer_args['deterministic']='warn'
