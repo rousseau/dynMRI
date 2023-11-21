@@ -271,7 +271,7 @@ if __name__ == '__main__':
             )
 
     if args.model is not None:
-        pretrained_dict = torch.load(args.model)
+        pretrained_dict = torch.load(args.model)['state_dict']
         model_dict = net.state_dict()
         if model_dict.keys() == pretrained_dict.keys():
             print('Réseau prétrained entièrement chargé dans le modèle')
