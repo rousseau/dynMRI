@@ -303,10 +303,9 @@ if __name__ == '__main__':
 
     if args.seed:
         trainer_args['deterministic']='warn'
-        trainer = pl.Trainer(**trainer_args)
-        # compiled_net = torch.compile(net)
-    else:
-        trainer = pl.Trainer(**trainer_args)
+    
+    trainer = pl.Trainer(**trainer_args)
+    # compiled_net = torch.compile(net)
 
     trainer.fit(net, training_loader_patches, validation_loader_patches)
     trainer.save_checkpoint(output_path+prefix+'.ckpt')
