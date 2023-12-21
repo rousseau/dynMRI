@@ -28,13 +28,13 @@ class BaseOptions():
         parser.add_argument('--use_segmentation_network', help='Return the segmentation extract fro mthe content', action='store_true')
         parser.add_argument('--discriminator', help='Define the discriminator architecture', type=str, required=False, default='PatchGAN', choices={'PatchGAN', 'DRIT'})
         parser.add_argument('--norm_discrim', help='Normalization to apply in the DRIT discriminator', type=str, required=False, default='None', choices=['None', 'Instance'])
-        #parser.add_argument('--activation_layer', help='Layer for getting activations for')
 
         # dataset parameters
         parser.add_argument('-d', '--data', help='Input dataset', type=str, required=False, default = 'equinus_256')
         parser.add_argument('--dynamic_path', help='Path to the dynamic images folder (Equinus)', type=str, required=False, default = None)
         parser.add_argument('--static_path', help='Path to the dynamic images folder (Equinus)', type=str, required=False, default = None)
         parser.add_argument('--seg_path', help='Path to the segmentations folder (Equinus)', type=str, required=False, default = None)
+        parser.add_argument('--footmask_path', help='Path to the footmask folder (Equinus)', type=str, required=False, default=None)
         parser.add_argument('-p', '--patch_size', help='Patch size', nargs='+', type=int, required=False, default = (64,64,1))
 
 
@@ -51,16 +51,16 @@ class BaseOptions():
         setattr(opt, 'saving_path', recording_path+'/')
 
         if (opt.static_path!=None and opt.dynamic_path!=None):
-            setattr(opt, 'data', 'custom')
+            assert (opt.data=='custom' or 'custom_simulate'), "If you are specifying paths for Equinus images, please set the 'data' option to 'custom' or 'cutom_simulate'"
 
         if opt.use_segmentation_network:
-            if opt.data == 'custom':
+            if opt.data == 'custom' or opt.data == "custom_simulate":
                 assert opt.seg_path is not None, "Please define the path to the segmentations while using segmentation network. Use --seg_path argument"
             else:
                 setattr(opt, 'data', 'bone_segmentation_equinus_256')
             if opt.lambda_segmentation_loss ==0:
-                warnings.warn("Warning: the use of segmentation network is set to True but the loss ponderation is defined to 0. Set to 1 by default.")
-                setattr(opt, 'lambda_segmentation_loss', 1)
+                warnings.warn("Warning: the use of segmentation network is set to True but the loss ponderation is defined to 0. Set to 10 by default.")
+                setattr(opt, 'lambda_segmentation_loss', 10)
 
 
         to_save = ''
