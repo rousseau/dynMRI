@@ -1062,7 +1062,45 @@ def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, 
                                     )
                                     subjects.append(subject)
 
+    elif data == 'custom_simulate':
+        check_subjects=[]
+        if seg_path is not None:
+            bones_seg_path=os.path.join(seg_path)
+        footmask_path=os.path.join(footmask_path)
+        original_path=os.path.join(static_path)
+        simulate_path=os.path.join(dynamic_path)
 
+        subject_names = os.listdir(simulate_path)
+        forbidden_subjects=['sub_T10', 'sub_T11']
+
+        for s in subject_names:
+            if s not in forbidden_subjects:
+                for i in range(20):
+                    simulate=glob.glob(os.path.join(simulate_path, s, s+'_static_3DT1_n'+str(i)+'.nii.gz'))[0]
+                    original=glob.glob(os.path.join(original_path, s, s+'_static_3DT1_n'+str(i)+'.nii.gz'))[0]
+                    footmask=glob.glob(os.path.join(footmask_path, s, s+'_static_3DT1_footmask_n'+str(i)+'.nii.gz'))[0]
+                    if seg_path is not None:
+                        seg=glob.glob(os.path.join(bones_seg_path, s, s+'_static_3DT1_segment_3-labels-bones_n'+str(i)+'.nii.gz'))[0]
+
+                    if s not in check_subjects:
+                        check_subjects.append(s)
+
+                    if seg_path is not None:
+                        subject=tio.Subject(
+                            subject_name=s,
+                            HR_image=tio.ScalarImage(original),
+                            LR_image=tio.ScalarImage(simulate),
+                            label=tio.LabelMap(footmask),
+                            segmentations=tio.LabelMap(seg),
+                        )
+                    else:
+                        subject=tio.Subject(
+                            subject_name=s,
+                            HR_image=tio.ScalarImage(original),
+                            LR_image=tio.ScalarImage(simulate),
+                            label=tio.LabelMap(footmask),
+                        )
+                    subjects.append(subject)
 
     else:
         sys.exit('Non conform data name')
