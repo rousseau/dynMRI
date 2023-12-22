@@ -2533,7 +2533,7 @@ class DRIT(pl.LightningModule):
         if opt.use_segmentation_network:
             if opt.data == 'segmentation_equinus_256':
                 self.segmentation_net = UNet(n_classes=2)
-            elif opt.data == 'bone_segmentation_equinus_256' or opt.data == 'custom':
+            elif opt.data == 'bone_segmentation_equinus_256' or opt.data == 'custom' or opt.data == 'custom_simulate':
                 self.segmentation_net = UNet(n_classes=4)
         else:
             self.segmentation_net = None
