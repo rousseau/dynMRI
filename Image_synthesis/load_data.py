@@ -9,7 +9,7 @@ import torchvision.transforms as transforms
 import random
 
 
-def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, mean=False, dynamic_path = None, static_path = None, seg_path=None):
+def load_data(data, segmentation, batch_size, version=None, max_subjects = 400, mean=False, dynamic_path = None, static_path = None, seg_path=None, footmask_path=None):
     subjects=[]
 
     if data == 'hcp':
